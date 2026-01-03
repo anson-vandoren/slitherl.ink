@@ -151,31 +151,35 @@ export class InputHandler {
   }
 
   onPointerUp(e) {
-    this.removeEvent(e);
+    // 1. Check if we were actually tracking this pointer
+    const index = this.evCache.findIndex((cachedEv) => cachedEv.pointerId === e.pointerId);
 
+    // If not found, it's a duplicate event (like a trailing pointerleave), so ignore it.
+    if (index === -1) return;
+
+    // 2. Remove it
+    this.evCache.splice(index, 1);
+
+    // 3. Reset pinch diff if needed
     if (this.evCache.length < 2) {
       this.prevDiff = -1;
     }
 
+    // 4. Handle Tap/End Drag
     if (this.evCache.length === 0) {
       this.isDragging = false;
       this.canvas.releasePointerCapture(e.pointerId);
 
       const dist = Math.hypot(e.clientX - this.dragStartPos.x, e.clientY - this.dragStartPos.y);
-      if (dist < 5 && this.callbacks.onTap) {
+
+      // (Optional: Keep the 15px tolerance from before, it's still good practice for mobile)
+      if (dist < 15 && this.callbacks.onTap) {
         this.callbacks.onTap(e.clientX, e.clientY);
       }
     } else if (this.evCache.length === 1) {
       // Resume panning with the remaining finger
       this.isDragging = true;
       this.lastPos = { x: this.evCache[0].clientX, y: this.evCache[0].clientY };
-    }
-  }
-
-  removeEvent(e) {
-    const index = this.evCache.findIndex((cachedEv) => cachedEv.pointerId === e.pointerId);
-    if (index > -1) {
-      this.evCache.splice(index, 1);
     }
   }
 
