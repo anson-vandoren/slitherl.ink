@@ -131,7 +131,7 @@ export class Renderer {
     const edgeIndex = Math.floor(deg / 60);
 
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > this.hexSize * 0.75) {
+    if (dist > this.hexSize * 0.6) {
       return { type: 'edge', target: hex, edgeIndex };
     }
 
