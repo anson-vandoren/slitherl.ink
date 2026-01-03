@@ -21,6 +21,8 @@ export class InputHandler {
   }
 
   onPointerDown(e) {
+    // Prevent default browser behaviors like text selection or scrolling
+    e.preventDefault();
     this.isDragging = true;
     this.lastPos = { x: e.clientX, y: e.clientY };
     this.dragStartPos = { x: e.clientX, y: e.clientY };
