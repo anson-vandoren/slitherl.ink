@@ -1,0 +1,22 @@
+:root {
+  /* Gruvbox Dark Hard Theme */
+  --bg0-hard: #1d2021;
+  --fg: #ebdbb2;
+  --gray: #928374;
+  --yellow: #fabd2f;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background-color: var(--bg0-hard);
+  color: var(--fg);
+  font-family: sans-serif;
+  touch-action: none; /* Prevent browser handling of touch gestures */
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
