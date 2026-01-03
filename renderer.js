@@ -18,8 +18,8 @@ export class Renderer {
     this.ctx.save();
     // Center the camera
     this.ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
-    this.ctx.translate(this.camera.x, this.camera.y);
     this.ctx.scale(this.camera.zoom, this.camera.zoom);
+    this.ctx.translate(this.camera.x, this.camera.y);
 
     for (const hex of this.grid.getAllHexes()) {
       this.drawHexagon(hex);
