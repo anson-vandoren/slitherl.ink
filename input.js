@@ -3,9 +3,12 @@ export class InputHandler {
     this.canvas = canvas;
     this.camera = camera;
     this.callbacks = callbacks || {};
-    this.isDragging = false;
     this.lastPos = { x: 0, y: 0 };
     this.dragStartPos = { x: 0, y: 0 };
+
+    // Constraints
+    this.bounds = { minX: -100, maxX: 100, minY: -100, maxY: 100, width: 200, height: 200 };
+    this.minZoom = 0.1;
 
     // Pinch-to-zoom state
     this.evCache = [];
@@ -25,6 +28,66 @@ export class InputHandler {
 
     // Disable context menu
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  updateConstraints(bounds, viewportWidth, viewportHeight) {
+    this.bounds = bounds;
+
+    // minZoom calculation: grid should take up at least 2/3 of smallest viewport dimension
+    const minViewportDim = Math.min(viewportWidth, viewportHeight);
+    const targetGridSize = minViewportDim * (2 / 3);
+    const maxGridDim = Math.max(bounds.width, bounds.height);
+
+    this.minZoom = targetGridSize / maxGridDim;
+
+    // Enforce current zoom
+    if (this.camera.zoom < this.minZoom) {
+      this.camera.zoom = this.minZoom;
+    }
+
+    this.clampCamera();
+  }
+
+  clampCamera() {
+    // Prevent panning too far.
+    // Ensure that at least some part of the grid is always visible (intersect viewport)
+
+    const vpW_world = this.canvas.width / this.camera.zoom;
+    const vpH_world = this.canvas.height / this.camera.zoom;
+
+    // We want the viewport center (camera.x, camera.y) to be constrained
+    // such that the viewport STRICTLY intersects the grid bounds.
+    // To ensure at least 100 units of overlap (approx 3 hexes):
+    const overlap = 100;
+
+    const marginX = vpW_world / 2 - overlap;
+    const marginY = vpH_world / 2 - overlap;
+
+    // If viewport is smaller than grid, margin might be negative?
+    // No, logic holds. If we want overlap, center cannot go beyond edge + half_vp - overlap.
+
+    // HOWEVER, if grid is smaller than viewport (zoomed out min), we want to center it?
+    // If minZoom constraint works, grid is approx 2/3 of viewport.
+    // So viewport IS larger than grid in world space?
+    // Grid size 500. Viewport world size 500 / 0.6 = 800.
+    // vpW_world > gridWidth.
+    // marginX = 400 - 100 = 300.
+    // bounds.minX ~ -250.
+    // minX - margin = -550.
+    // bounds.maxX ~ 250.
+    // maxX + margin = 550.
+    // Camera can roam -550 to 550.
+    // Viewport covers -950 to -150 (left side) -> Grid is at -250 to 250.
+    // -150 overlaps -250..250. Correct.
+
+    this.camera.x = Math.max(
+      this.bounds.minX - marginX,
+      Math.min(this.camera.x, this.bounds.maxX + marginX)
+    );
+    this.camera.y = Math.max(
+      this.bounds.minY - marginY,
+      Math.min(this.camera.y, this.bounds.maxY + marginY)
+    );
   }
 
   onPointerDown(e) {
@@ -81,6 +144,8 @@ export class InputHandler {
       this.camera.x += dx / this.camera.zoom;
       this.camera.y += dy / this.camera.zoom;
 
+      this.clampCamera();
+
       this.lastPos = { x: e.clientX, y: e.clientY };
     }
   }
@@ -136,7 +201,7 @@ export class InputHandler {
 
     // Apply zoom
     this.camera.zoom *= factor;
-    this.camera.zoom = Math.max(0.1, Math.min(this.camera.zoom, 5));
+    this.camera.zoom = Math.max(this.minZoom, Math.min(this.camera.zoom, 5));
 
     // Adjust camera to keep world position at center stable
     // (centerX - w/2) / newZoom - newCamX = wx
@@ -144,5 +209,7 @@ export class InputHandler {
 
     this.camera.x = (centerX - w / 2) / this.camera.zoom - wx;
     this.camera.y = (centerY - h / 2) / this.camera.zoom - wy;
+
+    this.clampCamera();
   }
 }

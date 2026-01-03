@@ -137,4 +137,36 @@ export class Renderer {
 
     return { type: 'hex', target: hex };
   }
+
+  getGridBounds() {
+    let minX = Infinity,
+      maxX = -Infinity,
+      minY = Infinity,
+      maxY = -Infinity;
+
+    // We can iterate all hexes to find precise bounds
+    // Optimization: for a perfect hex grid, we could calculate analytical bounds,
+    // but iterating is robust for arbitrary shapes if we change grid gen later.
+    let count = 0;
+    for (const hex of this.grid.getAllHexes()) {
+      count++;
+      const x = this.hexSize * (1.5 * hex.q);
+      const y = this.hexSize * ((Math.sqrt(3) / 2) * hex.q + Math.sqrt(3) * hex.r);
+
+      // Check all 6 corners for precise AABB?
+      // Or just center + radius?
+      // Center + radius is good enough approximation, or just center +/- hexSize is safe.
+      // Let's use the center coordinate which is the anchor.
+      // To strictly contain the visual drawing, we should add/subtract hexSize.
+
+      minX = Math.min(minX, x - this.hexSize);
+      maxX = Math.max(maxX, x + this.hexSize);
+      minY = Math.min(minY, y - this.hexSize);
+      maxY = Math.max(maxY, y + this.hexSize);
+    }
+
+    if (count === 0) return { minX: -100, maxX: 100, minY: -100, maxY: 100 }; // Fallback
+
+    return { minX, maxX, minY, maxY, width: maxX - minX, height: maxY - minY };
+  }
 }

@@ -21,6 +21,10 @@ radiusInput.addEventListener('input', (e) => {
   // Re-init grid
   renderer.grid = new Grid(state.radius);
   renderer.render();
+
+  // Update constraints
+  const bounds = renderer.getGridBounds();
+  input.updateConstraints(bounds, canvas.width, canvas.height);
 });
 
 // Initialize modules
@@ -47,9 +51,14 @@ const input = new InputHandler(canvas, state.camera, {
   },
 });
 
+// Init constraints
+input.updateConstraints(renderer.getGridBounds(), canvas.width, canvas.height);
+
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
+  // Update constraints on resize
+  input.updateConstraints(renderer.getGridBounds(), canvas.width, canvas.height);
   renderer.render();
 }
 
