@@ -131,15 +131,22 @@ export class Renderer {
       this.ctx.lineTo(p2.x, p2.y);
 
       const state = activeEdges[i];
-      if (state === 1) {
+      if (state === 0) {
+        // Neutral (0)
+        this.ctx.strokeStyle = COLORS.gray; // Normal
+        this.ctx.lineWidth = 1;
+        this.ctx.setLineDash([1, 4]);
+        this.ctx.lineCap = 'butt';
+        this.ctx.lineJoin = 'miter';
+      } else if (state === 1) {
         // Active
         this.ctx.strokeStyle = COLORS.fg2;
         this.ctx.lineWidth = 3;
         this.ctx.setLineDash([]);
         this.ctx.lineCap = 'round';
         this.ctx.lineJoin = 'round';
-      } else if (state === 2) {
-        // Inactive (off)
+      } else if (state === 2 || state === 3) {
+        // Inactive (off), intentional = 2, computed = 3
         this.ctx.strokeStyle = COLORS.bg0_soft;
         this.ctx.lineWidth = 1;
         this.ctx.setLineDash([1, 4]);
@@ -147,23 +154,18 @@ export class Renderer {
         this.ctx.lineJoin = 'miter';
         this.ctx.stroke();
 
-        // Draw X in the middle
-        const midX = (p1.x + p2.x) / 2;
-        const midY = (p1.y + p2.y) / 2;
-        const s = 4;
-        this.ctx.beginPath();
-        this.ctx.moveTo(midX - s, midY - s);
-        this.ctx.lineTo(midX + s, midY + s);
-        this.ctx.moveTo(midX + s, midY - s);
-        this.ctx.lineTo(midX - s, midY + s);
-        this.ctx.setLineDash([]);
-      } else {
-        // Neutral (0)
-        this.ctx.strokeStyle = COLORS.gray; // Normal
-        this.ctx.lineWidth = 1;
-        this.ctx.setLineDash([1, 4]);
-        this.ctx.lineCap = 'butt';
-        this.ctx.lineJoin = 'miter';
+        if (state === 2) {
+          // Draw X in the middle only for intentionally inactive edges
+          const midX = (p1.x + p2.x) / 2;
+          const midY = (p1.y + p2.y) / 2;
+          const s = 4;
+          this.ctx.beginPath();
+          this.ctx.moveTo(midX - s, midY - s);
+          this.ctx.lineTo(midX + s, midY + s);
+          this.ctx.moveTo(midX + s, midY - s);
+          this.ctx.lineTo(midX - s, midY + s);
+          this.ctx.setLineDash([]);
+        }
       }
       this.ctx.stroke();
     }

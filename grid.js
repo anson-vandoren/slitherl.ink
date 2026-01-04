@@ -47,4 +47,97 @@ export class Grid {
   getAllHexes() {
     return this.hexagons.values();
   }
+
+  setEdgeState(q, r, edgeIndex, newState) {
+    const hex = this.getHex(q, r);
+    if (!hex) return;
+
+    if (hex.activeEdges[edgeIndex] === newState) return;
+
+    hex.activeEdges[edgeIndex] = newState;
+
+    // Sync neighbor
+    const neighbor = this.getNeighbor(q, r, edgeIndex);
+    if (neighbor) {
+      const neighborEdgeIndex = (edgeIndex + 3) % 6;
+      neighbor.activeEdges[neighborEdgeIndex] = newState;
+    }
+
+    // Check vertices at both ends of this edge
+    // Edge i connects Corner i and Corner i+1 (mod 6)
+    this.checkVertex(hex, edgeIndex);
+    this.checkVertex(hex, (edgeIndex + 1) % 6);
+  }
+
+  checkVertex(hex, cornerIndex) {
+    if (!hex) return;
+
+    // Identify the three edges meeting at this vertex (Corner i)
+    // 1. Edge (i-1) of this hex (previous edge)
+    const e1Index = (cornerIndex + 5) % 6;
+    const s1 = hex.activeEdges[e1Index];
+
+    // 2. Edge i of this hex (current edge/next edge from corner)
+    const e2Index = cornerIndex;
+    const s2 = hex.activeEdges[e2Index];
+
+    // 3. The edge connecting the two neighbors
+    // Neighbors are in direction of e1 and e2
+    const n1 = this.getNeighbor(hex.q, hex.r, e1Index);
+    const n2 = this.getNeighbor(hex.q, hex.r, e2Index);
+
+    let s3 = -1; // -1 means invalid/boundary
+    let setS3 = null; // function to set s3 if needed
+
+    if (n1 && n2) {
+      // Find which edge of n1 connects to n2
+      // Using coordinate math to find direction from n1 to n2
+      const dq = n2.q - n1.q;
+      const dr = n2.r - n1.r;
+
+      // Determine direction index based on dq, dr
+      // Directions:
+      // 0: (1, 0), 1: (0, 1), 2: (-1, 1), 3: (-1, 0), 4: (0, -1), 5: (1, -1)
+      let dir = -1;
+      if (dq === 1 && dr === 0) dir = 0;
+      else if (dq === 0 && dr === 1) dir = 1;
+      else if (dq === -1 && dr === 1) dir = 2;
+      else if (dq === -1 && dr === 0) dir = 3;
+      else if (dq === 0 && dr === -1) dir = 4;
+      else if (dq === 1 && dr === -1) dir = 5;
+
+      if (dir !== -1) {
+        s3 = n1.activeEdges[dir];
+        setS3 = (newState) => {
+          this.setEdgeState(n1.q, n1.r, dir, newState);
+        };
+      }
+    }
+
+    // Logic:
+    // If exactly 2 edges are Active (1) -> 3rd (if Neutral 0) becomes Calculated Off (3)
+    // If exactly 2 edges are Inactive (2 or 3) -> 3rd (if Neutral 0) becomes Calculated Off (3)
+
+    const states = [s1, s2, s3];
+    // Filter valid edges (s3 might be -1 if boundary)
+    if (s3 === -1) return;
+
+    const activeCount = states.filter((s) => s === 1).length;
+    const inactiveCount = states.filter((s) => s === 2 || s === 3).length;
+    const neutralCount = states.filter((s) => s === 0).length;
+
+    if (neutralCount === 1) {
+      // We have exactly one neutral edge, determining if we should flip it
+      let shouldTurnOff = false;
+      if (activeCount === 2) shouldTurnOff = true;
+      if (inactiveCount === 2) shouldTurnOff = true;
+
+      if (shouldTurnOff) {
+        // Find which one is neutral and set it
+        if (s1 === 0) this.setEdgeState(hex.q, hex.r, e1Index, 3);
+        else if (s2 === 0) this.setEdgeState(hex.q, hex.r, e2Index, 3);
+        else if (s3 === 0 && setS3) setS3(3);
+      }
+    }
+  }
 }

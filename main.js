@@ -38,22 +38,14 @@ const input = new InputHandler(canvas, state.camera, {
     if (hit.type === 'hex') {
       const hex = hit.target;
       hex.active = (hex.active + 1) % 3;
-      console.log('Tapped hex:', hex);
     } else if (hit.type === 'edge') {
       const hex = hit.target;
       const edgeIndex = hit.edgeIndex;
       // Toggle edge on current hex
-      hex.activeEdges[edgeIndex] = (hex.activeEdges[edgeIndex] + 1) % 3;
+      const currentState = hex.activeEdges[edgeIndex];
+      const newState = (currentState + 1) % 3;
 
-      // Toggle shared edge on neighbor
-      const neighbor = grid.getNeighbor(hex.q, hex.r, edgeIndex);
-      if (neighbor) {
-        const neighborEdgeIndex = (edgeIndex + 3) % 6;
-        neighbor.activeEdges[neighborEdgeIndex] = hex.activeEdges[edgeIndex];
-        console.log('Toggled active neighbor edge:', neighborEdgeIndex, 'of hex:', neighbor);
-      }
-
-      console.log('Tapped edge:', edgeIndex, 'of hex:', hex);
+      grid.setEdgeState(hex.q, hex.r, edgeIndex, newState);
     }
   },
 });
