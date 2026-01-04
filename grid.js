@@ -89,38 +89,44 @@ export class Grid {
     let s3 = -1; // -1 means invalid/boundary
     let setS3 = null; // function to set s3 if needed
 
-    if (n1 && n2) {
-      // Find which edge of n1 connects to n2
-      // Using coordinate math to find direction from n1 to n2
-      const dq = n2.q - n1.q;
-      const dr = n2.r - n1.r;
+    const n1Dir = e1Index;
+    const n2Dir = e2Index;
 
-      // Determine direction index based on dq, dr
-      // Directions:
-      // 0: (1, 0), 1: (0, 1), 2: (-1, 1), 3: (-1, 0), 4: (0, -1), 5: (1, -1)
-      let dir = -1;
-      if (dq === 1 && dr === 0) dir = 0;
-      else if (dq === 0 && dr === 1) dir = 1;
-      else if (dq === -1 && dr === 1) dir = 2;
-      else if (dq === -1 && dr === 0) dir = 3;
-      else if (dq === 0 && dr === -1) dir = 4;
-      else if (dq === 1 && dr === -1) dir = 5;
+    // Determine direction from N1 to N2 (relative to N1)
+    // Formula: (cornerIndex + 1) % 6
+    const dirN1toN2 = (cornerIndex + 1) % 6;
 
-      if (dir !== -1) {
-        s3 = n1.activeEdges[dir];
-        setS3 = (newState) => {
-          this.setEdgeState(n1.q, n1.r, dir, newState);
-        };
-      }
+    // Determine direction from N2 to N1 (relative to N2)
+    // Formula: (cornerIndex + 4) % 6
+    const dirN2toN1 = (cornerIndex + 4) % 6;
+
+    if (n1) {
+      // If N1 exists, s3 is the edge of N1 towards N2
+      s3 = n1.activeEdges[dirN1toN2];
+      setS3 = (newState) => {
+        this.setEdgeState(n1.q, n1.r, dirN1toN2, newState);
+      };
+    } else if (n2) {
+      // If N1 is missing but N2 exists, s3 is the edge of N2 towards N1
+      s3 = n2.activeEdges[dirN2toN1];
+      setS3 = (newState) => {
+        this.setEdgeState(n2.q, n2.r, dirN2toN1, newState);
+      };
     }
+    // If neither exists, s3 remains -1, effectively treated as "Calculated Off" below.
 
     // Logic:
     // If exactly 2 edges are Active (1) -> 3rd (if Neutral 0) becomes Calculated Off (3)
     // If exactly 2 edges are Inactive (2 or 3) -> 3rd (if Neutral 0) becomes Calculated Off (3)
 
-    const states = [s1, s2, s3];
-    // Filter valid edges (s3 might be -1 if boundary)
-    if (s3 === -1) return;
+    // Treat boundary edges (phantom edges) as 'Calculated Off' (3)
+    let effectiveS3 = s3;
+    if (effectiveS3 === -1) {
+      effectiveS3 = 3;
+    }
+
+    const states = [s1, s2, effectiveS3];
+    // Filter not needed anymore as we handle s3=-1 via effectiveS3=3
 
     const activeCount = states.filter((s) => s === 1).length;
     const inactiveCount = states.filter((s) => s === 2 || s === 3).length;
