@@ -57,13 +57,33 @@ export class Renderer {
 
     const intersections = new Map(); // Key: "x,y", Value: {x, y}
 
+    // Layer 1: Inactive Edges (State 2 or 3)
     for (const hex of this.grid.getAllHexes()) {
       const corners = this.getHexCorners(hex);
-      this.drawHexagon(hex, corners);
+      this.drawHexEdges(hex, corners, 'inactive');
+    }
 
-      // Collect corners for intersection rendering
+    // Layer 2: Neutral Edges (State 0)
+    for (const hex of this.grid.getAllHexes()) {
+      const corners = this.getHexCorners(hex);
+      this.drawHexEdges(hex, corners, 'neutral');
+    }
+
+    // Layer 3: Fills
+    for (const hex of this.grid.getAllHexes()) {
+      if (hex.active > 0) {
+        const corners = this.getHexCorners(hex);
+        this.drawHexFill(hex, corners);
+      }
+    }
+
+    // Layer 4: Active Edges (State 1)
+    for (const hex of this.grid.getAllHexes()) {
+      const corners = this.getHexCorners(hex);
+      this.drawHexEdges(hex, corners, 'active');
+
+      // Collect corners for intersection rendering (only need to do this once)
       for (const p of corners) {
-        // Use a somewhat precise key to deduplicate vertices shared by hexes
         const k = `${Math.round(p.x * 100)},${Math.round(p.y * 100)}`;
         if (!intersections.has(k)) {
           intersections.set(k, p);
@@ -100,12 +120,9 @@ export class Renderer {
     return corners;
   }
 
-  drawHexagon(hex, corners) {
-    // corners can be passed in optimization, or calculated if missing
-    if (!corners) {
-      corners = this.getHexCorners(hex);
-    }
-    const { active, activeEdges } = hex;
+  drawHexFill(hex, corners) {
+    if (!corners) corners = this.getHexCorners(hex);
+    const { active } = hex;
 
     this.ctx.beginPath();
     this.ctx.moveTo(corners[0].x, corners[0].y);
@@ -121,24 +138,33 @@ export class Renderer {
       this.ctx.fillStyle = COLORS.purple + '80';
       this.ctx.fill();
     }
+  }
 
-    // Draw edges
+  drawHexEdges(hex, corners, layerType) {
+    if (!corners) corners = this.getHexCorners(hex);
+    const { activeEdges } = hex;
+
     for (let i = 0; i < 6; i++) {
-      // Check for neighbor to avoid double drawing
       const neighbor = this.grid.getNeighbor(hex.q, hex.r, i);
+
       // Canonical Edge Rule:
-      // If neighbor exists, draw ONLY if we are the "lesser" hex (lexicographically by q, then r).
-      // If neighbor does NOT exist, we always draw (it's a border edge).
+      // If neighbor exists, draw ONLY if we are the "lesser" hex.
+      // If neighbor does NOT exist, we always draw.
       let shouldDraw = true;
       if (neighbor) {
-        if (neighbor.q < hex.q) {
-          shouldDraw = false;
-        } else if (neighbor.q === hex.q && neighbor.r < hex.r) {
-          shouldDraw = false;
-        }
+        if (neighbor.q < hex.q) shouldDraw = false;
+        else if (neighbor.q === hex.q && neighbor.r < hex.r) shouldDraw = false;
       }
-
       if (!shouldDraw) continue;
+
+      const state = activeEdges[i];
+      let matchesLayer = false;
+
+      if (layerType === 'inactive' && (state === 2 || state === 3)) matchesLayer = true;
+      else if (layerType === 'neutral' && state === 0) matchesLayer = true;
+      else if (layerType === 'active' && state === 1) matchesLayer = true;
+
+      if (!matchesLayer) continue;
 
       const p1 = corners[i];
       const p2 = corners[(i + 1) % 6];
@@ -146,23 +172,24 @@ export class Renderer {
       this.ctx.moveTo(p1.x, p1.y);
       this.ctx.lineTo(p2.x, p2.y);
 
-      const state = activeEdges[i];
       if (state === 0) {
         // Neutral (0)
-        this.ctx.strokeStyle = COLORS.gray; // Normal
+        this.ctx.strokeStyle = COLORS.gray;
         this.ctx.lineWidth = 1;
         this.ctx.setLineDash([1, 3]);
         this.ctx.lineCap = 'butt';
         this.ctx.lineJoin = 'miter';
+        this.ctx.stroke();
       } else if (state === 1) {
-        // Active
+        // Active (1)
         this.ctx.strokeStyle = COLORS.fg2;
         this.ctx.lineWidth = 3;
         this.ctx.setLineDash([]);
         this.ctx.lineCap = 'round';
         this.ctx.lineJoin = 'round';
+        this.ctx.stroke();
       } else if (state === 2 || state === 3) {
-        // Inactive (off), intentional = 2, computed = 3
+        // Inactive (2 or 3)
         this.ctx.strokeStyle = COLORS.bg0_soft;
         this.ctx.lineWidth = 1;
         this.ctx.setLineDash([1, 3]);
@@ -171,19 +198,26 @@ export class Renderer {
         this.ctx.stroke();
 
         if (state === 2) {
-          // Draw X in the middle only for intentionally inactive edges
-          const midX = (p1.x + p2.x) / 2;
-          const midY = (p1.y + p2.y) / 2;
-          const s = 4;
-          this.ctx.beginPath();
-          this.ctx.moveTo(midX - s, midY - s);
-          this.ctx.lineTo(midX + s, midY + s);
-          this.ctx.moveTo(midX + s, midY - s);
-          this.ctx.lineTo(midX - s, midY + s);
-          this.ctx.setLineDash([]);
+          // Check visibility condition for X
+          // Condition: If hex.active > 0 OR (neighbor && neighbor.active > 0), SKIP X
+          let hideX = false;
+          if (hex.active > 0) hideX = true;
+          if (neighbor && neighbor.active > 0) hideX = true;
+
+          if (!hideX) {
+            const midX = (p1.x + p2.x) / 2;
+            const midY = (p1.y + p2.y) / 2;
+            const s = 4;
+            this.ctx.beginPath();
+            this.ctx.moveTo(midX - s, midY - s);
+            this.ctx.lineTo(midX + s, midY + s);
+            this.ctx.moveTo(midX + s, midY - s);
+            this.ctx.lineTo(midX - s, midY + s);
+            this.ctx.setLineDash([]);
+            this.ctx.stroke();
+          }
         }
       }
-      this.ctx.stroke();
     }
   }
 
