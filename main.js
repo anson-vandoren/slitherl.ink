@@ -44,8 +44,15 @@ const input = new InputHandler(canvas, state.camera, {
       const edgeIndex = hit.edgeIndex;
       // Toggle edge on current hex
       hex.activeEdges[edgeIndex] = !hex.activeEdges[edgeIndex];
-      // Note: Ideally we should also find the neighbor and toggle its shared edge.
-      // But for this MVP, visual feedback on one hex is sufficient.
+
+      // Toggle shared edge on neighbor
+      const neighbor = grid.getNeighbor(hex.q, hex.r, edgeIndex);
+      if (neighbor) {
+        const neighborEdgeIndex = (edgeIndex + 3) % 6;
+        neighbor.activeEdges[neighborEdgeIndex] = !neighbor.activeEdges[neighborEdgeIndex];
+        console.log('Toggled active neighbor edge:', neighborEdgeIndex, 'of hex:', neighbor);
+      }
+
       console.log('Tapped edge:', edgeIndex, 'of hex:', hex);
     }
   },
