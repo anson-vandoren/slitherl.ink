@@ -28,8 +28,27 @@ radiusInput.addEventListener('input', (e) => {
 });
 
 // Initialize modules
+// Default radius if map fails
 const grid = new Grid(state.radius);
 const renderer = new Renderer(canvas, grid, state.camera);
+
+// Load ID 0 map
+fetch('map.json')
+  .then((res) => res.json())
+  .then((data) => {
+    state.radius = data.radius;
+    radiusVal.textContent = state.radius;
+    grid.loadMap(data);
+    renderer.render();
+
+    // Update constraints
+    const bounds = renderer.getGridBounds();
+    input.updateConstraints(bounds, canvas.width, canvas.height);
+  })
+  .catch((err) => {
+    console.error('Failed to load map:', err);
+    // Fallback to default generated grid is already done above
+  });
 const input = new InputHandler(canvas, state.camera, {
   onTap: (x, y) => {
     const hit = renderer.getHit(x, y);

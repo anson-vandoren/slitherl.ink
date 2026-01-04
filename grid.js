@@ -140,4 +140,50 @@ export class Grid {
       }
     }
   }
+
+  loadMap(mapData) {
+    this.hexagons.clear();
+    this.radius = mapData.radius;
+
+    // Load hexes with their Region state (1=Inside, 2=Outside)
+    for (const h of mapData.hexes) {
+      const key = `${h.q},${h.r}`;
+      this.hexagons.set(key, {
+        q: h.q,
+        r: h.r,
+        s: -h.q - h.r,
+        active: h.active, // This is the Region state
+        activeEdges: [0, 0, 0, 0, 0, 0],
+      });
+    }
+
+    this.deriveEdgesFromRegions();
+  }
+
+  deriveEdgesFromRegions() {
+    for (const hex of this.hexagons.values()) {
+      for (let i = 0; i < 6; i++) {
+        const neighbor = this.getNeighbor(hex.q, hex.r, i);
+        let edgeState = 2; // Default to Inactive
+
+        if (neighbor) {
+          // If regions differ, edge is Active (1)
+          if (hex.active !== neighbor.active) {
+            edgeState = 1;
+          } else {
+            edgeState = 2;
+          }
+        } else {
+          // Boundary edge
+          // If hex is Inside (1), boundary is Active (1)
+          // If hex is Outside (2), boundary is Inactive (2)
+          if (hex.active === 1) edgeState = 1;
+          else edgeState = 2;
+        }
+
+        // Set the state directly to avoid triggering propagation logic during setup
+        hex.activeEdges[i] = edgeState;
+      }
+    }
+  }
 }
