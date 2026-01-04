@@ -122,6 +122,53 @@ function generateMap(radius) {
     }
   }
 
+  // Post-processing: Extend Inside regions
+  // Repeatedly find Outside hexes with exactly 1 Inside neighbor and toggle them to Inside.
+  // This grows "spines" to fill available space without merging branches (which would require >1 neighbor).
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const candidatesToExtend = [];
+
+    for (const h of hexes.values()) {
+      if (h.active === 2) {
+        // Outside
+        const neighbors = getNeighbors(h.q, h.r);
+        let insideCount = 0;
+        for (const n of neighbors) {
+          if (insideSet.has(getKey(n.q, n.r))) {
+            insideCount++;
+          }
+        }
+        if (insideCount === 1) {
+          candidatesToExtend.push(h);
+        }
+      }
+    }
+
+    // Apply extensions
+    for (const hex of candidatesToExtend) {
+      // Re-check inside neighbors count to ensure it's still 1
+      // (It might have increased if we just extended a neighbor of this one in this pass)
+      const neighbors = getNeighbors(hex.q, hex.r);
+      let insideCount = 0;
+      for (const n of neighbors) {
+        if (insideSet.has(getKey(n.q, n.r))) {
+          insideCount++;
+        }
+      }
+
+      if (insideCount === 1) {
+        // Also check canToggle to be safe about Outside connectivity
+        if (canToggle(hex, hexes, radius)) {
+          hex.active = 1;
+          insideSet.add(getKey(hex.q, hex.r));
+          changed = true;
+        }
+      }
+    }
+  }
+
   // Calculate final circumference (number of edges between Inside and Outside)
   let circumference = 0;
   for (const h of hexes.values()) {
@@ -164,36 +211,33 @@ function canToggle(targetHex, allHexes, radius) {
   const key = getKey(targetHex.q, targetHex.r);
   targetHex.active = 1;
 
-  // Pick an arbitrary Outside hex to start flood fill
-  let startNode = null;
-  // We can pick a boundary hex, as boundary hexes should usually be Outside
-  // (unless our inside region touches the edge, which is allowed but risky for "loop" closing?
-  // User said "one inside and one outside", implied boundary is outside)
-  // Let's try to find ANY remaining Outside hex.
-  for (const h of allHexes.values()) {
-    if (h.active === 2) {
-      startNode = h;
-      break;
-    }
-  }
+  // Topological Rule: No "Inside" loops within loops.
+  // This is equivalent to saying that the "Outside" region must not have any holes.
+  // In other words, every "Outside" hex must be able to reach the Map Boundary.
+  // If an Outside hex cannot reach the boundary, it is trapped (a lake), which implies a second loop.
 
-  if (!startNode) {
-    // No outside hexes left?! Should not happen if we don't fill 100%
-    targetHex.active = 2; // Revert
-    return false;
-  }
-
-  // Count total Outside hexes
+  // 1. Count total Outside hexes
   let totalOutside = 0;
   for (const h of allHexes.values()) {
     if (h.active === 2) totalOutside++;
   }
 
-  // Flood fill from startNode
+  // 2. Initialize Flood Fill from all Outside hexes on the Map Boundary
   const visited = new Set();
-  const queue = [startNode];
-  visited.add(getKey(startNode.q, startNode.r));
+  const queue = [];
 
+  for (const h of allHexes.values()) {
+    if (h.active === 2) {
+      // Check if on boundary
+      const dist = Math.max(Math.abs(h.q), Math.abs(h.r), Math.abs(-h.q - h.r));
+      if (dist === radius) {
+        queue.push(h);
+        visited.add(getKey(h.q, h.r));
+      }
+    }
+  }
+
+  // 3. Flood Fill
   let reachedCount = 0;
   while (queue.length > 0) {
     const current = queue.pop();
@@ -213,7 +257,8 @@ function canToggle(targetHex, allHexes, radius) {
   // Revert change
   targetHex.active = 2;
 
-  // If we reached all outside nodes, then connectivity is preserved
+  // 4. Validate
+  // If we reached every outside node starting from the boundary, then there are no holes.
   return reachedCount === totalOutside;
 }
 
