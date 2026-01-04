@@ -55,15 +55,36 @@ export class Renderer {
     this.ctx.scale(this.camera.zoom, this.camera.zoom);
     this.ctx.translate(this.camera.x, this.camera.y);
 
+    const intersections = new Map(); // Key: "x,y", Value: {x, y}
+
     for (const hex of this.grid.getAllHexes()) {
-      this.drawHexagon(hex);
+      const corners = this.getHexCorners(hex);
+      this.drawHexagon(hex, corners);
+
+      // Collect corners for intersection rendering
+      for (const p of corners) {
+        // Use a somewhat precise key to deduplicate vertices shared by hexes
+        const k = `${Math.round(p.x * 100)},${Math.round(p.y * 100)}`;
+        if (!intersections.has(k)) {
+          intersections.set(k, p);
+        }
+      }
+    }
+
+    // Draw intersections
+    this.ctx.fillStyle = COLORS.fg2;
+    for (const p of intersections.values()) {
+      this.ctx.beginPath();
+      // Radius 2 looks good for standard zoom
+      this.ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+      this.ctx.fill();
     }
 
     this.ctx.restore();
   }
 
-  drawHexagon(hex) {
-    const { q, r, active, activeEdges } = hex;
+  getHexCorners(hex) {
+    const { q, r } = hex;
     const x = this.hexSize * (1.5 * q);
     const y = this.hexSize * ((Math.sqrt(3) / 2) * q + Math.sqrt(3) * r);
 
@@ -76,6 +97,15 @@ export class Renderer {
         y: y + this.hexSize * Math.sin(angle_rad),
       });
     }
+    return corners;
+  }
+
+  drawHexagon(hex, corners) {
+    // corners can be passed in optimization, or calculated if missing
+    if (!corners) {
+      corners = this.getHexCorners(hex);
+    }
+    const { active, activeEdges } = hex;
 
     this.ctx.beginPath();
     this.ctx.moveTo(corners[0].x, corners[0].y);
