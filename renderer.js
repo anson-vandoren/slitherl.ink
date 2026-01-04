@@ -67,10 +67,14 @@ export class Renderer {
         this.ctx.strokeStyle = '#d5c4a1'; // Highlight (Gruvbox Light 2)
         this.ctx.lineWidth = 3;
         this.ctx.setLineDash([]);
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
       } else {
         this.ctx.strokeStyle = '#928374'; // Normal
         this.ctx.lineWidth = 1;
         this.ctx.setLineDash([1, 5]);
+        this.ctx.lineCap = 'butt';
+        this.ctx.lineJoin = 'miter';
       }
       this.ctx.stroke();
     }
