@@ -63,13 +63,23 @@ export class Renderer {
       this.ctx.moveTo(p1.x, p1.y);
       this.ctx.lineTo(p2.x, p2.y);
 
-      if (activeEdges[i]) {
+      const state = activeEdges[i];
+      if (state === 1) {
+        // Active
         this.ctx.strokeStyle = '#d5c4a1'; // Highlight (Gruvbox Light 2)
         this.ctx.lineWidth = 3;
         this.ctx.setLineDash([]);
         this.ctx.lineCap = 'round';
         this.ctx.lineJoin = 'round';
+      } else if (state === 2) {
+        // Inactive (off)
+        this.ctx.strokeStyle = '#3c3836'; // Darker gray (Gruvbox bg1/bg2 ?)
+        this.ctx.lineWidth = 1;
+        this.ctx.setLineDash([1, 5]);
+        this.ctx.lineCap = 'butt';
+        this.ctx.lineJoin = 'miter';
       } else {
+        // Neutral (0)
         this.ctx.strokeStyle = '#928374'; // Normal
         this.ctx.lineWidth = 1;
         this.ctx.setLineDash([1, 5]);
