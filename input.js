@@ -25,9 +25,6 @@ export class InputHandler {
     window.addEventListener('pointerout', this.onPointerUp.bind(this));
     window.addEventListener('pointerleave', this.onPointerUp.bind(this));
     this.canvas.addEventListener('wheel', this.onWheel.bind(this), { passive: false });
-
-    // Disable context menu
-    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   updateConstraints(bounds, viewportWidth, viewportHeight) {

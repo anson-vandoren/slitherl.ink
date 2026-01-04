@@ -208,10 +208,9 @@ export class Renderer {
     const hexCoords = this.pixelToHex(p.x, p.y);
     const hex = this.grid.getHex(hexCoords.q, hexCoords.r);
 
-    if (!hex) return null;
-
-    const hx = this.hexSize * (1.5 * hex.q);
-    const hy = this.hexSize * ((Math.sqrt(3) / 2) * hex.q + Math.sqrt(3) * hex.r);
+    // Calculate geometry relative to the theoretical hex center
+    const hx = this.hexSize * (1.5 * hexCoords.q);
+    const hy = this.hexSize * ((Math.sqrt(3) / 2) * hexCoords.q + Math.sqrt(3) * hexCoords.r);
 
     const dx = p.x - hx;
     const dy = p.y - hy;
@@ -224,11 +223,26 @@ export class Renderer {
     const edgeIndex = Math.floor(deg / 60);
 
     const dist = Math.sqrt(dx * dx + dy * dy);
-    if (dist > this.hexSize * 0.6) {
-      return { type: 'edge', target: hex, edgeIndex };
+
+    if (hex) {
+      if (dist > this.hexSize * 0.6) {
+        return { type: 'edge', target: hex, edgeIndex };
+      }
+      return { type: 'hex', target: hex };
+    } else {
+      // If no hex found, but we are in the "edge zone" (outer ring of a phantom hex),
+      // we might be clicking the shared edge of a valid neighbor.
+      if (dist > this.hexSize * 0.6) {
+        const neighbor = this.grid.getNeighbor(hexCoords.q, hexCoords.r, edgeIndex);
+        if (neighbor) {
+          // The shared edge on the neighbor is opposite to our local edgeIndex
+          const neighborEdgeIndex = (edgeIndex + 3) % 6;
+          return { type: 'edge', target: neighbor, edgeIndex: neighborEdgeIndex };
+        }
+      }
     }
 
-    return { type: 'hex', target: hex };
+    return null;
   }
 
   getGridBounds() {
