@@ -1,3 +1,37 @@
+const COLORS = {
+  bg0_hard: '#1d2021',
+  bg0: '#282828',
+  bg0_soft: '#32302f',
+  bg1: '#3c3836',
+  bg2: '#504945',
+  bg3: '#665c54',
+  bg4: '#7c6f64',
+
+  fg0: '#fbf1c7',
+  fg1: '#ebdbb2',
+  fg2: '#d5c4a1',
+  fg3: '#bdae93',
+  fg4: '#a89984',
+
+  red: '#cc241d',
+  green: '#98971a',
+  yellow: '#d79921',
+  blue: '#458588',
+  purple: '#b16286',
+  aqua: '#689d6a',
+  orange: '#d65d0e',
+  gray: '#928374',
+
+  red_bright: '#fb4934',
+  green_bright: '#b8bb26',
+  yellow_bright: '#fabd2f',
+  blue_bright: '#83a598',
+  purple_bright: '#d3869b',
+  aqua_bright: '#8ec07c',
+  orange_bright: '#fe8019',
+  gray_bright: '#a89984',
+};
+
 export class Renderer {
   constructor(canvas, grid, camera) {
     this.canvas = canvas;
@@ -8,10 +42,10 @@ export class Renderer {
   }
 
   render() {
-    this.ctx.fillStyle = '#1d2021'; // Gruvbox bg0_hard
+    this.ctx.fillStyle = COLORS.bg0_hard;
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    this.ctx.strokeStyle = '#928374'; // Gruvbox gray
+    this.ctx.strokeStyle = COLORS.gray;
     this.ctx.lineWidth = 1;
     this.ctx.setLineDash([5, 5]);
 
@@ -51,7 +85,7 @@ export class Renderer {
     this.ctx.closePath();
 
     if (active) {
-      this.ctx.fillStyle = '#fabd2f20'; // Gruvbox yellow transparent
+      this.ctx.fillStyle = COLORS.yellow_bright + '20';
       this.ctx.fill();
     }
 
@@ -66,23 +100,35 @@ export class Renderer {
       const state = activeEdges[i];
       if (state === 1) {
         // Active
-        this.ctx.strokeStyle = '#d5c4a1'; // Highlight (Gruvbox Light 2)
+        this.ctx.strokeStyle = COLORS.fg2;
         this.ctx.lineWidth = 3;
         this.ctx.setLineDash([]);
         this.ctx.lineCap = 'round';
         this.ctx.lineJoin = 'round';
       } else if (state === 2) {
         // Inactive (off)
-        this.ctx.strokeStyle = '#3c3836'; // Darker gray (Gruvbox bg1/bg2 ?)
+        this.ctx.strokeStyle = COLORS.bg0_soft;
         this.ctx.lineWidth = 1;
-        this.ctx.setLineDash([1, 5]);
+        this.ctx.setLineDash([1, 4]);
         this.ctx.lineCap = 'butt';
         this.ctx.lineJoin = 'miter';
+        this.ctx.stroke();
+
+        // Draw X in the middle
+        const midX = (p1.x + p2.x) / 2;
+        const midY = (p1.y + p2.y) / 2;
+        const s = 4;
+        this.ctx.beginPath();
+        this.ctx.moveTo(midX - s, midY - s);
+        this.ctx.lineTo(midX + s, midY + s);
+        this.ctx.moveTo(midX + s, midY - s);
+        this.ctx.lineTo(midX - s, midY + s);
+        this.ctx.setLineDash([]);
       } else {
         // Neutral (0)
-        this.ctx.strokeStyle = '#928374'; // Normal
+        this.ctx.strokeStyle = COLORS.gray; // Normal
         this.ctx.lineWidth = 1;
-        this.ctx.setLineDash([1, 5]);
+        this.ctx.setLineDash([1, 4]);
         this.ctx.lineCap = 'butt';
         this.ctx.lineJoin = 'miter';
       }
