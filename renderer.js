@@ -124,6 +124,22 @@ export class Renderer {
 
     // Draw edges
     for (let i = 0; i < 6; i++) {
+      // Check for neighbor to avoid double drawing
+      const neighbor = this.grid.getNeighbor(hex.q, hex.r, i);
+      // Canonical Edge Rule:
+      // If neighbor exists, draw ONLY if we are the "lesser" hex (lexicographically by q, then r).
+      // If neighbor does NOT exist, we always draw (it's a border edge).
+      let shouldDraw = true;
+      if (neighbor) {
+        if (neighbor.q < hex.q) {
+          shouldDraw = false;
+        } else if (neighbor.q === hex.q && neighbor.r < hex.r) {
+          shouldDraw = false;
+        }
+      }
+
+      if (!shouldDraw) continue;
+
       const p1 = corners[i];
       const p2 = corners[(i + 1) % 6];
       this.ctx.beginPath();
@@ -135,7 +151,7 @@ export class Renderer {
         // Neutral (0)
         this.ctx.strokeStyle = COLORS.gray; // Normal
         this.ctx.lineWidth = 1;
-        this.ctx.setLineDash([1, 4]);
+        this.ctx.setLineDash([1, 3]);
         this.ctx.lineCap = 'butt';
         this.ctx.lineJoin = 'miter';
       } else if (state === 1) {
@@ -149,7 +165,7 @@ export class Renderer {
         // Inactive (off), intentional = 2, computed = 3
         this.ctx.strokeStyle = COLORS.bg0_soft;
         this.ctx.lineWidth = 1;
-        this.ctx.setLineDash([1, 4]);
+        this.ctx.setLineDash([1, 3]);
         this.ctx.lineCap = 'butt';
         this.ctx.lineJoin = 'miter';
         this.ctx.stroke();
