@@ -64,13 +64,13 @@ export class Renderer {
       this.ctx.lineTo(p2.x, p2.y);
 
       if (activeEdges[i]) {
-        this.ctx.strokeStyle = '#fabd2f'; // Highlight
+        this.ctx.strokeStyle = '#d5c4a1'; // Highlight (Gruvbox Light 2)
         this.ctx.lineWidth = 3;
         this.ctx.setLineDash([]);
       } else {
         this.ctx.strokeStyle = '#928374'; // Normal
         this.ctx.lineWidth = 1;
-        this.ctx.setLineDash([5, 5]);
+        this.ctx.setLineDash([1, 5]);
       }
       this.ctx.stroke();
     }
