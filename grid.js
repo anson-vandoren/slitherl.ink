@@ -165,25 +165,25 @@ export class Grid {
     const view = new DataView(buffer);
     this.radius = view.getUint8(0);
 
-    // Regenerate hex structure first (default active=2)
-    // We could optimize this by setting active directly during iteration,
-    // but generating the grid structure first ensures we have all q,r,s properties setups correctly.
-    // Actually, let's just create them on the fly to match the iteration order exactly.
-
     let byteIndex = 1;
-    let bitIndex = 0;
 
     // Iterate in the same canonical order
     for (let q = -this.radius; q <= this.radius; q++) {
       const r1 = Math.max(-this.radius, -q - this.radius);
       const r2 = Math.min(this.radius, -q + this.radius);
       for (let r = r1; r <= r2; r++) {
-        // Read bit
         const byte = view.getUint8(byteIndex);
-        const bit = (byte >> bitIndex) & 1;
 
-        // Inside (1) or Outside (2)
-        const active = bit === 1 ? 1 : 2;
+        // Unpack byte
+        // Bit 0: Region (1=Inside, 0=Outside) (Note: original generator code used 1=Inside, 2=Outside,
+        // but the binary saves 1 for Inside, 0 for Outside. I should map this back to 1 and 2 for consistency if needed,
+        // or just use 1 and 2. The generator saves bit as (active===1 ? 1 : 0).
+        // So bit 1 means Inside (state 1), bit 0 means Outside (state 2).
+        const regionBit = byte & 0x1;
+        const active = regionBit === 1 ? 1 : 2;
+
+        const count = (byte >> 1) & 0x7;
+        const show = (byte >> 4) & 0x1;
 
         const s = -q - r;
         const key = `${q},${r}`;
@@ -192,45 +192,25 @@ export class Grid {
           r,
           s,
           active,
-          activeEdges: [0, 0, 0, 0, 0, 0],
+          targetCount: count,
+          showNumber: show === 1,
+          activeEdges: [0, 0, 0, 0, 0, 0], // Initialize to Neutral (0)
         });
 
-        // Advance bit cursor
-        bitIndex++;
-        if (bitIndex === 8) {
-          bitIndex = 0;
-          byteIndex++;
-        }
+        byteIndex++;
       }
     }
-
-    this.deriveEdgesFromRegions();
+    // No longer calling deriveEdgesFromRegions(), starting with neutral board.
   }
 
   deriveEdgesFromRegions() {
-    for (const hex of this.hexagons.values()) {
-      for (let i = 0; i < 6; i++) {
-        const neighbor = this.getNeighbor(hex.q, hex.r, i);
-        let edgeState = 2; // Default to Inactive
-
-        if (neighbor) {
-          // If regions differ, edge is Active (1)
-          if (hex.active !== neighbor.active) {
-            edgeState = 1;
-          } else {
-            edgeState = 2;
-          }
-        } else {
-          // Boundary edge
-          // If hex is Inside (1), boundary is Active (1)
-          // If hex is Outside (2), boundary is Inactive (2)
-          if (hex.active === 1) edgeState = 1;
-          else edgeState = 2;
-        }
-
-        // Set the state directly to avoid triggering propagation logic during setup
-        hex.activeEdges[i] = edgeState;
-      }
-    }
+    // Deprecated for Puzzle Mode.
+    // Kept empty/minimal or just removed.
+    // If I leave it, I should make sure it's not called or doesn't do anything disruptive.
+    // The previous implementation overwrote activeEdges.
+    // I entered this method in the replacement range, so I will effectively remove the old logic.
+    // For now, I'll just leave it empty or remove it.
+    // The plan said "Remove deriveEdgesFromRegions call on load".
+    // I will remove the method entirely if I can cover the whole range.
   }
 }

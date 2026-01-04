@@ -70,11 +70,9 @@ export class Renderer {
     }
 
     // Layer 3: Fills
+    // Layer 3: Numbers (instead of Fills)
     for (const hex of this.grid.getAllHexes()) {
-      if (hex.active > 0) {
-        const corners = this.getHexCorners(hex);
-        this.drawHexFill(hex, corners);
-      }
+      this.drawHexNumber(hex);
     }
 
     // Layer 4: Active Edges (State 1)
@@ -219,6 +217,20 @@ export class Renderer {
         }
       }
     }
+  }
+
+  drawHexNumber(hex) {
+    if (!hex.showNumber) return;
+
+    const { q, r } = hex;
+    const x = this.hexSize * (1.5 * q);
+    const y = this.hexSize * ((Math.sqrt(3) / 2) * q + Math.sqrt(3) * r);
+
+    this.ctx.fillStyle = COLORS.fg0;
+    this.ctx.font = '20px sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(hex.targetCount.toString(), x, y);
   }
 
   screenToWorld(screenX, screenY) {

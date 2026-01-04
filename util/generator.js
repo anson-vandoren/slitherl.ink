@@ -170,19 +170,29 @@ function generateMap(radius) {
   }
 
   // Calculate final circumference (number of edges between Inside and Outside)
+  // And calculate target active active edge counts for each hex
   let circumference = 0;
   for (const h of hexes.values()) {
-    if (h.active === 1) {
-      // Inside
-      const neighbors = getNeighbors(h.q, h.r);
-      for (const n of neighbors) {
-        const nKey = getKey(n.q, n.r);
-        const neighborHex = hexes.get(nKey);
-        // If neighbor is Outside (2) or doesn't exist (off map), it's a boundary edge
-        // Note: Map boundary is effectively Outside for circumference purposes if we consider the map loop.
-        // But usually we just count 1 vs 2 interfaces.
-        // Let's count interfaces with 'active=2' hexes.
-        if (neighborHex && neighborHex.active === 2) {
+    h.targetCount = 0; // Initialize count
+    h.showNumber = true; // Default to show number
+
+    const neighbors = getNeighbors(h.q, h.r);
+    for (const n of neighbors) {
+      const nKey = getKey(n.q, n.r);
+      const neighborHex = hexes.get(nKey);
+
+      // Check if edge is active.
+      // Edge is active if neighbor is in a different region.
+      // If neighbor is missing (off map), it's considered Outside (2).
+      let neighborActive = 2;
+      if (neighborHex) {
+        neighborActive = neighborHex.active;
+      }
+
+      if (h.active !== neighborActive) {
+        h.targetCount++;
+        // Only count circumference once per edge (e.g. from the Inside hex)
+        if (h.active === 1) {
           circumference++;
         }
       }
@@ -278,7 +288,13 @@ saveBinaryMap(mapData);
  * Saves map data to a compact binary format.
  * Format:
  * [Radius (1 byte)]
- * [Hex Bitfield (variable)] - 1 bit per hex, 8 hexes per byte. LSB first.
+ * [Hex Data (1 byte per hex)]
+ *
+ * Hex Data Byte Layout (LSB to MSB):
+ * Bit 0: Inside (1) or Outside (0)
+ * Bit 1-3: Active Edge Count (0-7)
+ * Bit 4: Show Number Flag (1=Show, 0=Hide)
+ * Bit 5-7: Reserved (0)
  */
 function saveBinaryMap(mapData) {
   const radius = mapData.radius;
@@ -299,8 +315,7 @@ function saveBinaryMap(mapData) {
     totalHexes += r2 - r1 + 1;
   }
 
-  const hexBytes = Math.ceil(totalHexes / 8);
-  const bufferSize = 1 + hexBytes; // 1 byte for radius
+  const bufferSize = 1 + totalHexes; // 1 byte for radius + 1 byte per hex
   const buffer = Buffer.alloc(bufferSize);
 
   // Write Radius
@@ -308,8 +323,6 @@ function saveBinaryMap(mapData) {
 
   // Write Hexes
   let byteIndex = 1;
-  let bitIndex = 0;
-  let currentByte = 0;
 
   for (let q = -radius; q <= radius; q++) {
     const r1 = Math.max(-radius, -q - radius);
@@ -318,28 +331,31 @@ function saveBinaryMap(mapData) {
       const key = getKey(q, r);
       const hex = hexMap.get(key);
 
-      // Default to Outside (2) -> 0 if missing (shouldn't happen)
-      // Inside (1) -> 1
-      // Outside (2) -> 0
-      const bit = hex && hex.active === 1 ? 1 : 0;
+      // Default to Outside (2) -> 0, Count=0, Show=1 if missing
+      // Region: Inside (1) -> 1, Outside (2) -> 0
 
-      if (bit === 1) {
-        currentByte |= 1 << bitIndex;
+      let regionBit = 0;
+      let count = 0;
+      let showNumber = 1; // Default to show
+
+      if (hex) {
+        regionBit = hex.active === 1 ? 1 : 0;
+        count = hex.targetCount || 0;
+        showNumber = hex.showNumber !== false ? 1 : 0;
       }
 
-      bitIndex++;
-      if (bitIndex === 8) {
-        buffer.writeUInt8(currentByte, byteIndex);
-        byteIndex++;
-        currentByte = 0;
-        bitIndex = 0;
-      }
+      // Pack byte
+      // Bit 0: Region
+      // Bits 1-3: Count
+      // Bit 4: Show Number
+      let packedByte = 0;
+      packedByte |= regionBit & 0x1;
+      packedByte |= (count & 0x7) << 1;
+      packedByte |= (showNumber & 0x1) << 4;
+
+      buffer.writeUInt8(packedByte, byteIndex);
+      byteIndex++;
     }
-  }
-
-  // Write leftover bits
-  if (bitIndex > 0) {
-    buffer.writeUInt8(currentByte, byteIndex);
   }
 
   fs.writeFileSync('map.bin', buffer);
