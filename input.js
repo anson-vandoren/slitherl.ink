@@ -52,11 +52,11 @@ export class InputHandler {
         const vpH_world = this.canvas.height / this.camera.zoom;
         // We want the viewport center (camera.x, camera.y) to be constrained
         // such that the viewport STRICTLY intersects the grid bounds.
-        // To ensure at least 100 units of overlap (approx 3 hexes):
-        const overlap = 200;
-        // ... rest of method ok to infer
-        const marginX = vpW_world / 2 - overlap;
-        const marginY = vpH_world / 2 - overlap;
+        // To ensure at least 200 units of overlap (approx 3 hexes), or half screen if zoomed in:
+        const overlapX = Math.min(200, vpW_world / 2);
+        const overlapY = Math.min(200, vpH_world / 2);
+        const marginX = vpW_world / 2 - overlapX;
+        const marginY = vpH_world / 2 - overlapY;
         // If viewport is smaller than grid, margin might be negative?
         // No, logic holds. If we want overlap, center cannot go beyond edge + half_vp - overlap.
         // HOWEVER, if grid is smaller than viewport (zoomed out min), we want to center it?
@@ -64,12 +64,12 @@ export class InputHandler {
         // So viewport IS larger than grid in world space?
         // Grid size 500. Viewport world size 500 / 0.6 = 800.
         // vpW_world > gridWidth.
-        // marginX = 400 - 100 = 300.
+        // marginX = 400 - 200 = 200.
         // bounds.minX ~ -250.
-        // minX - margin = -550.
+        // minX - margin = -450.
         // bounds.maxX ~ 250.
-        // maxX + margin = 550.
-        // Camera can roam -550 to 550.
+        // maxX + margin = 450.
+        // Camera can roam -450 to 450.
         // Viewport covers -950 to -150 (left side) -> Grid is at -250 to 250.
         // -150 overlaps -250..250. Correct.
         this.camera.x = Math.max(this.bounds.minX - marginX, Math.min(this.camera.x, this.bounds.maxX + marginX));
