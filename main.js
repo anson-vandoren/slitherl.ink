@@ -37,7 +37,7 @@ const input = new InputHandler(canvas, state.camera, {
 
     if (hit.type === 'hex') {
       const hex = hit.target;
-      hex.active = !hex.active;
+      hex.active = (hex.active + 1) % 3;
       console.log('Tapped hex:', hex);
     } else if (hit.type === 'edge') {
       const hex = hit.target;

@@ -114,8 +114,11 @@ export class Renderer {
     }
     this.ctx.closePath();
 
-    if (active) {
-      this.ctx.fillStyle = COLORS.yellow_bright + '20';
+    if (active === 1) {
+      this.ctx.fillStyle = COLORS.yellow_bright + '80';
+      this.ctx.fill();
+    } else if (active === 2) {
+      this.ctx.fillStyle = COLORS.purple + '80';
       this.ctx.fill();
     }
 

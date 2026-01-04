@@ -22,7 +22,7 @@ export class Grid {
       q,
       r,
       s,
-      active: false,
+      active: 0,
       activeEdges: [0, 0, 0, 0, 0, 0],
     });
   }
