@@ -265,8 +265,83 @@ function canToggle(targetHex, allHexes, radius) {
 // Run
 const RADIUS = 5;
 const mapData = generateMap(RADIUS);
-const outputData = JSON.stringify(mapData, null, 2);
 
-// Write to root/map.json as per plan to be served
-fs.writeFileSync('map.json', outputData);
-console.log(`Saved to map.json`);
+// Save JSON (Legacy) for reference if needed, but we'll focus on binary
+const outputData = JSON.stringify(mapData, null, 2);
+// fs.writeFileSync('map.json', outputData);
+// console.log(`Saved to map.json`);
+
+// Save Binary
+saveBinaryMap(mapData);
+
+/**
+ * Saves map data to a compact binary format.
+ * Format:
+ * [Radius (1 byte)]
+ * [Hex Bitfield (variable)] - 1 bit per hex, 8 hexes per byte. LSB first.
+ */
+function saveBinaryMap(mapData) {
+  const radius = mapData.radius;
+  const hexes = mapData.hexes;
+
+  // Re-create the Map for easy lookup by q,r
+  const hexMap = new Map();
+  for (const h of hexes) {
+    hexMap.set(getKey(h.q, h.r), h);
+  }
+
+  // Calculate buffer size
+  // Count total hexes
+  let totalHexes = 0;
+  for (let q = -radius; q <= radius; q++) {
+    const r1 = Math.max(-radius, -q - radius);
+    const r2 = Math.min(radius, -q + radius);
+    totalHexes += r2 - r1 + 1;
+  }
+
+  const hexBytes = Math.ceil(totalHexes / 8);
+  const bufferSize = 1 + hexBytes; // 1 byte for radius
+  const buffer = Buffer.alloc(bufferSize);
+
+  // Write Radius
+  buffer.writeUInt8(radius, 0);
+
+  // Write Hexes
+  let byteIndex = 1;
+  let bitIndex = 0;
+  let currentByte = 0;
+
+  for (let q = -radius; q <= radius; q++) {
+    const r1 = Math.max(-radius, -q - radius);
+    const r2 = Math.min(radius, -q + radius);
+    for (let r = r1; r <= r2; r++) {
+      const key = getKey(q, r);
+      const hex = hexMap.get(key);
+
+      // Default to Outside (2) -> 0 if missing (shouldn't happen)
+      // Inside (1) -> 1
+      // Outside (2) -> 0
+      const bit = hex && hex.active === 1 ? 1 : 0;
+
+      if (bit === 1) {
+        currentByte |= 1 << bitIndex;
+      }
+
+      bitIndex++;
+      if (bitIndex === 8) {
+        buffer.writeUInt8(currentByte, byteIndex);
+        byteIndex++;
+        currentByte = 0;
+        bitIndex = 0;
+      }
+    }
+  }
+
+  // Write leftover bits
+  if (bitIndex > 0) {
+    buffer.writeUInt8(currentByte, byteIndex);
+  }
+
+  fs.writeFileSync('map.bin', buffer);
+  console.log(`Saved to map.bin (${buffer.length} bytes)`);
+}

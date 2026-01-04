@@ -33,12 +33,13 @@ const grid = new Grid(state.radius);
 const renderer = new Renderer(canvas, grid, state.camera);
 
 // Load ID 0 map
-fetch('map.json')
-  .then((res) => res.json())
-  .then((data) => {
-    state.radius = data.radius;
+// Load ID 0 map
+fetch('map.bin')
+  .then((res) => res.arrayBuffer())
+  .then((buffer) => {
+    grid.loadBinaryMap(buffer);
+    state.radius = grid.radius;
     radiusVal.textContent = state.radius;
-    grid.loadMap(data);
     renderer.render();
 
     // Update constraints

@@ -160,6 +160,53 @@ export class Grid {
     this.deriveEdgesFromRegions();
   }
 
+  loadBinaryMap(buffer) {
+    this.hexagons.clear();
+    const view = new DataView(buffer);
+    this.radius = view.getUint8(0);
+
+    // Regenerate hex structure first (default active=2)
+    // We could optimize this by setting active directly during iteration,
+    // but generating the grid structure first ensures we have all q,r,s properties setups correctly.
+    // Actually, let's just create them on the fly to match the iteration order exactly.
+
+    let byteIndex = 1;
+    let bitIndex = 0;
+
+    // Iterate in the same canonical order
+    for (let q = -this.radius; q <= this.radius; q++) {
+      const r1 = Math.max(-this.radius, -q - this.radius);
+      const r2 = Math.min(this.radius, -q + this.radius);
+      for (let r = r1; r <= r2; r++) {
+        // Read bit
+        const byte = view.getUint8(byteIndex);
+        const bit = (byte >> bitIndex) & 1;
+
+        // Inside (1) or Outside (2)
+        const active = bit === 1 ? 1 : 2;
+
+        const s = -q - r;
+        const key = `${q},${r}`;
+        this.hexagons.set(key, {
+          q,
+          r,
+          s,
+          active,
+          activeEdges: [0, 0, 0, 0, 0, 0],
+        });
+
+        // Advance bit cursor
+        bitIndex++;
+        if (bitIndex === 8) {
+          bitIndex = 0;
+          byteIndex++;
+        }
+      }
+    }
+
+    this.deriveEdgesFromRegions();
+  }
+
   deriveEdgesFromRegions() {
     for (const hex of this.hexagons.values()) {
       for (let i = 0; i < 6; i++) {
