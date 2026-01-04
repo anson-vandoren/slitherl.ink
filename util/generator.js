@@ -62,10 +62,40 @@ function generateMap(radius) {
   const targetSize = Math.floor(hexes.size * 0.45); // Aim for ~45% fill
 
   while (insideSet.size < targetSize && candidates.length > 0) {
-    // Pick a random candidate
-    const randIndex = Math.floor(Math.random() * candidates.length);
-    const candidateKey = candidates[randIndex];
-    candidates.splice(randIndex, 1); // Remove from list
+    // Improve selection: Prefer candidates that touch the FEWEST existing Inside hexes.
+    // This encourages "spindly" growth and maximizes circumference.
+
+    // 1. Calculate score (number of Inside neighbors) for each candidate
+    const scoredCandidates = candidates.map((key) => {
+      const parts = key.split(',').map(Number);
+      const q = parts[0];
+      const r = parts[1];
+      const neighbors = getNeighbors(q, r);
+      let insideNeighborCount = 0;
+      for (const n of neighbors) {
+        if (insideSet.has(getKey(n.q, n.r))) {
+          insideNeighborCount++;
+        }
+      }
+      return { key, score: insideNeighborCount };
+    });
+
+    // 2. Find minimum score
+    let minScore = 6;
+    for (const item of scoredCandidates) {
+      if (item.score < minScore) minScore = item.score;
+    }
+
+    // 3. Filter candidates to only those with minScore
+    const bestCandidates = scoredCandidates.filter((item) => item.score === minScore);
+
+    // 4. Pick random from best candidates
+    const randIndex = Math.floor(Math.random() * bestCandidates.length);
+    const candidateKey = bestCandidates[randIndex].key;
+
+    // Remove from main candidates list
+    const candidateIndex = candidates.indexOf(candidateKey);
+    candidates.splice(candidateIndex, 1);
 
     if (insideSet.has(candidateKey)) continue; // Already processed
 
@@ -91,6 +121,30 @@ function generateMap(radius) {
       }
     }
   }
+
+  // Calculate final circumference (number of edges between Inside and Outside)
+  let circumference = 0;
+  for (const h of hexes.values()) {
+    if (h.active === 1) {
+      // Inside
+      const neighbors = getNeighbors(h.q, h.r);
+      for (const n of neighbors) {
+        const nKey = getKey(n.q, n.r);
+        const neighborHex = hexes.get(nKey);
+        // If neighbor is Outside (2) or doesn't exist (off map), it's a boundary edge
+        // Note: Map boundary is effectively Outside for circumference purposes if we consider the map loop.
+        // But usually we just count 1 vs 2 interfaces.
+        // Let's count interfaces with 'active=2' hexes.
+        if (neighborHex && neighborHex.active === 2) {
+          circumference++;
+        }
+      }
+    }
+  }
+
+  console.log(
+    `Map generated with ${hexes.size} hexes. Inside size: ${insideSet.size}. Circumference: ${circumference}`
+  );
 
   return {
     radius,
@@ -170,4 +224,4 @@ const outputData = JSON.stringify(mapData, null, 2);
 
 // Write to root/map.json as per plan to be served
 fs.writeFileSync('map.json', outputData);
-console.log(`Map generated with ${mapData.hexes.length} hexes. Saved to map.json`);
+console.log(`Saved to map.json`);
