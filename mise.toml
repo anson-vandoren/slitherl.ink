@@ -1,2 +1,22 @@
 [tools]
 node = "latest"
+
+[tasks]
+build = "npm run build"
+
+[tasks.deploy]
+run = """
+#!/usr/bin/env bash
+set -e
+if [ -n "$(git status --porcelain)" ]; then
+  echo "Error: Working directory is not clean. Commit or stash changes first."
+  exit 1
+fi
+mise run build
+git add *.js
+git commit -m "chore: update build artifacts"
+git push
+"""
+
+[tasks.serve]
+run = "python3 -m http.server 8000"

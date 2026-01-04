@@ -1,0 +1,25 @@
+{
+  "name": "slitherl.ink",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anson-vandoren/slitherl.ink.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/anson-vandoren/slitherl.ink/issues"
+  },
+  "homepage": "https://github.com/anson-vandoren/slitherl.ink#readme",
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
