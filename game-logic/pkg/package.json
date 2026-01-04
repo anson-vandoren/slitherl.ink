@@ -1,0 +1,15 @@
+{
+  "name": "game-logic",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "game_logic_bg.wasm",
+    "game_logic.js",
+    "game_logic.d.ts"
+  ],
+  "main": "game_logic.js",
+  "types": "game_logic.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

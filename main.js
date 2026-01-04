@@ -1,4 +1,4 @@
-import { Grid } from './grid.js';
+import init, { Grid } from './game-logic/pkg/game_logic.js';
 import { Renderer } from './renderer.js';
 import { InputHandler } from './input.js';
 
@@ -28,7 +28,7 @@ radiusInput.addEventListener('input', (e) => {
 });
 
 // Initialize modules
-// Default radius if map fails
+await init();
 const grid = new Grid(state.radius);
 const renderer = new Renderer(canvas, grid, state.camera);
 
@@ -37,7 +37,8 @@ const renderer = new Renderer(canvas, grid, state.camera);
 fetch('map.bin')
   .then((res) => res.arrayBuffer())
   .then((buffer) => {
-    grid.loadBinaryMap(buffer);
+    const array = new Uint8Array(buffer);
+    grid.loadBinaryMap(array);
     state.radius = grid.radius;
     radiusVal.textContent = state.radius;
     renderer.render();

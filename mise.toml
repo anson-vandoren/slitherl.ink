@@ -1,2 +1,7 @@
 [tools]
 node = "latest"
+"cargo:wasm-pack" = "latest"
+
+[tasks.build]
+run = "wasm-pack build --target web --release game-logic"
+description = "Build the Wasm module for production"
