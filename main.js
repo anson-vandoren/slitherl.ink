@@ -118,6 +118,7 @@ class Game {
             },
         });
         this.initSplash();
+        this.initWinScreen();
         this.initNavigation();
         window.addEventListener('resize', () => this.resize());
         this.resize();
@@ -193,6 +194,64 @@ class Game {
         if (controls)
             controls.classList.remove('hidden');
     }
+    showWinScreen() {
+        const winScreen = document.getElementById('win-screen');
+        const controls = document.getElementById('game-controls');
+        const title = winScreen?.querySelector('h1');
+        const btn = document.getElementById('next-level-btn');
+        if (title)
+            title.innerText = 'Level Complete!';
+        if (btn) {
+            btn.innerText = 'Next Level';
+            btn.onclick = async () => {
+                // Progress was already saved when win screen was shown
+                this.currentLevelIndex++;
+                const success = await this.loadNextLevel();
+                if (success) {
+                    this.hideWinScreen();
+                }
+                else {
+                    // No more levels, revert index and show completion
+                    this.currentLevelIndex--;
+                    this.showCompletionScreen();
+                }
+            };
+        }
+        if (winScreen)
+            winScreen.classList.remove('hidden');
+        if (controls)
+            controls.classList.add('hidden');
+    }
+    showCompletionScreen() {
+        const winScreen = document.getElementById('win-screen');
+        const controls = document.getElementById('game-controls');
+        const title = winScreen?.querySelector('h1');
+        const btn = document.getElementById('next-level-btn');
+        if (title)
+            title.innerText = 'All Levels Complete!';
+        if (btn) {
+            btn.innerText = 'Back to Menu';
+            btn.onclick = () => {
+                this.hideWinScreen();
+                this.showSplash();
+            };
+        }
+        if (winScreen)
+            winScreen.classList.remove('hidden');
+        if (controls)
+            controls.classList.add('hidden');
+    }
+    hideWinScreen() {
+        const winScreen = document.getElementById('win-screen');
+        const controls = document.getElementById('game-controls');
+        if (winScreen)
+            winScreen.classList.add('hidden');
+        if (controls)
+            controls.classList.remove('hidden');
+    }
+    initWinScreen() {
+        // Logic moved to showWinScreen to ensure fresh state every time
+    }
     initSplash() {
         const startBtn = document.getElementById('start-btn');
         const sizeSelect = document.getElementById('size-select');
@@ -244,35 +303,52 @@ class Game {
                 console.log(`Starting game: ${this.currentSize} ${this.currentDifficulty} Level ${this.currentLevelIndex} (Restoring: ${restoring})`);
                 this.hideSplash();
                 history.pushState({ view: 'game' }, '');
-                this.loadNextLevel(restoring);
+                this.loadNextLevel(restoring).then((success) => {
+                    if (!success && !restoring) {
+                        // New game failed to load level (likely all complete)
+                        this.showCompletionScreen();
+                    }
+                    else if (!success && restoring) {
+                        alert('Could not restore active game.');
+                        this.showSplash();
+                    }
+                });
             };
         }
     }
-    loadNextLevel(restoring = false) {
+    async loadNextLevel(restoring = false) {
         // Construct path to the map file
         const mapPath = `maps/${this.currentSize}/${this.currentLevelIndex}.bin`;
-        this.loadMap(mapPath, restoring);
+        const success = await this.loadMap(mapPath, restoring);
+        if (!success) {
+            if (restoring) {
+                // If we failed to restore, something is wrong, back to splash
+                console.error('Failed to restore active game');
+                this.showSplash();
+            }
+            return false;
+        }
+        return true;
     }
     checkWin() {
         if (this.grid.isSolved()) {
             console.log('Puzzle Solved!');
             // Slight delay to allow the last line to render
             setTimeout(() => {
-                alert('Level Complete!');
                 this.progressManager.saveProgress(this.currentSize, this.currentDifficulty, this.currentLevelIndex);
-                this.currentLevelIndex++;
-                this.loadNextLevel();
+                this.showWinScreen();
             }, 50);
         }
     }
-    loadMap(mapFile, restoring = false) {
-        fetch(mapFile)
-            .then((res) => {
-            if (!res.ok)
+    async loadMap(mapFile, restoring = false) {
+        try {
+            const res = await fetch(mapFile);
+            if (!res.ok) {
+                if (res.status === 404)
+                    return false;
                 throw new Error(`Map not found: ${mapFile}`);
-            return res.arrayBuffer();
-        })
-            .then((buffer) => {
+            }
+            const buffer = await res.arrayBuffer();
             console.log('Loading map binary...');
             this.grid.loadBinaryMap(buffer);
             if (restoring) {
@@ -295,10 +371,12 @@ class Game {
             // Update constraints
             const bounds = this.renderer.getGridBounds();
             this.input.updateConstraints(bounds, this.canvas.width, this.canvas.height);
-        })
-            .catch((err) => {
+            return true;
+        }
+        catch (err) {
             console.error('Failed to load map:', err);
-        });
+            return false;
+        }
     }
     resize() {
         this.canvas.width = window.innerWidth;

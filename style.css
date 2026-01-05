@@ -28,7 +28,8 @@ canvas {
   touch-action: none;
 }
 
-#splash {
+#splash,
+#win-screen {
   position: absolute;
   top: 0;
   left: 0;

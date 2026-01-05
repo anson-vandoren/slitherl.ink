@@ -144,6 +144,7 @@ class Game {
     });
 
     this.initSplash();
+    this.initWinScreen();
     this.initNavigation();
 
     window.addEventListener('resize', () => this.resize());
@@ -230,6 +231,63 @@ class Game {
     if (controls) controls.classList.remove('hidden');
   }
 
+  showWinScreen() {
+    const winScreen = document.getElementById('win-screen');
+    const controls = document.getElementById('game-controls');
+    const title = winScreen?.querySelector('h1');
+    const btn = document.getElementById('next-level-btn');
+
+    if (title) title.innerText = 'Level Complete!';
+    if (btn) {
+      btn.innerText = 'Next Level';
+      btn.onclick = async () => {
+        // Progress was already saved when win screen was shown
+        this.currentLevelIndex++;
+        const success = await this.loadNextLevel();
+        if (success) {
+          this.hideWinScreen();
+        } else {
+          // No more levels, revert index and show completion
+          this.currentLevelIndex--;
+          this.showCompletionScreen();
+        }
+      };
+    }
+
+    if (winScreen) winScreen.classList.remove('hidden');
+    if (controls) controls.classList.add('hidden');
+  }
+
+  showCompletionScreen() {
+    const winScreen = document.getElementById('win-screen');
+    const controls = document.getElementById('game-controls');
+    const title = winScreen?.querySelector('h1');
+    const btn = document.getElementById('next-level-btn');
+
+    if (title) title.innerText = 'All Levels Complete!';
+    if (btn) {
+      btn.innerText = 'Back to Menu';
+      btn.onclick = () => {
+        this.hideWinScreen();
+        this.showSplash();
+      };
+    }
+
+    if (winScreen) winScreen.classList.remove('hidden');
+    if (controls) controls.classList.add('hidden');
+  }
+
+  hideWinScreen() {
+    const winScreen = document.getElementById('win-screen');
+    const controls = document.getElementById('game-controls');
+    if (winScreen) winScreen.classList.add('hidden');
+    if (controls) controls.classList.remove('hidden');
+  }
+
+  initWinScreen() {
+    // Logic moved to showWinScreen to ensure fresh state every time
+  }
+
   initSplash() {
     const startBtn = document.getElementById('start-btn');
     const sizeSelect = document.getElementById('size-select') as HTMLSelectElement;
@@ -295,16 +353,33 @@ class Game {
 
         this.hideSplash();
         history.pushState({ view: 'game' }, '');
-        this.loadNextLevel(restoring);
+        this.loadNextLevel(restoring).then((success) => {
+          if (!success && !restoring) {
+            // New game failed to load level (likely all complete)
+            this.showCompletionScreen();
+          } else if (!success && restoring) {
+            alert('Could not restore active game.');
+            this.showSplash();
+          }
+        });
       };
     }
   }
 
-  loadNextLevel(restoring: boolean = false) {
+  async loadNextLevel(restoring: boolean = false): Promise<boolean> {
     // Construct path to the map file
     const mapPath = `maps/${this.currentSize}/${this.currentLevelIndex}.bin`;
 
-    this.loadMap(mapPath, restoring);
+    const success = await this.loadMap(mapPath, restoring);
+    if (!success) {
+      if (restoring) {
+        // If we failed to restore, something is wrong, back to splash
+        console.error('Failed to restore active game');
+        this.showSplash();
+      }
+      return false;
+    }
+    return true;
   }
 
   checkWin() {
@@ -312,53 +387,54 @@ class Game {
       console.log('Puzzle Solved!');
       // Slight delay to allow the last line to render
       setTimeout(() => {
-        alert('Level Complete!');
         this.progressManager.saveProgress(
           this.currentSize,
           this.currentDifficulty,
           this.currentLevelIndex
         );
-        this.currentLevelIndex++;
-        this.loadNextLevel();
+        this.showWinScreen();
       }, 50);
     }
   }
 
-  loadMap(mapFile: string, restoring: boolean = false) {
-    fetch(mapFile)
-      .then((res: Response) => {
-        if (!res.ok) throw new Error(`Map not found: ${mapFile}`);
-        return res.arrayBuffer();
-      })
-      .then((buffer: ArrayBuffer) => {
-        console.log('Loading map binary...');
-        this.grid.loadBinaryMap(buffer);
+  async loadMap(mapFile: string, restoring: boolean = false): Promise<boolean> {
+    try {
+      const res = await fetch(mapFile);
+      if (!res.ok) {
+        if (res.status === 404) return false;
+        throw new Error(`Map not found: ${mapFile}`);
+      }
 
-        if (restoring) {
-          const state = this.progressManager.loadActiveState(this.currentSize);
-          if (state && state.history) {
-            this.grid.loadHistory(state.history, state.historyIndex);
-          }
-          if (state && state.camera) {
-            this.camera.x = state.camera.x;
-            this.camera.y = state.camera.y;
-            this.camera.zoom = state.camera.zoom;
-          }
-        } else {
-          // New game, save initial state
-          this.saveGameHistory();
-          this.saveViewState();
+      const buffer = await res.arrayBuffer();
+      console.log('Loading map binary...');
+      this.grid.loadBinaryMap(buffer);
+
+      if (restoring) {
+        const state = this.progressManager.loadActiveState(this.currentSize);
+        if (state && state.history) {
+          this.grid.loadHistory(state.history, state.historyIndex);
         }
+        if (state && state.camera) {
+          this.camera.x = state.camera.x;
+          this.camera.y = state.camera.y;
+          this.camera.zoom = state.camera.zoom;
+        }
+      } else {
+        // New game, save initial state
+        this.saveGameHistory();
+        this.saveViewState();
+      }
 
-        this.renderer.render(this.canvas);
+      this.renderer.render(this.canvas);
 
-        // Update constraints
-        const bounds = this.renderer.getGridBounds();
-        this.input.updateConstraints(bounds, this.canvas.width, this.canvas.height);
-      })
-      .catch((err) => {
-        console.error('Failed to load map:', err);
-      });
+      // Update constraints
+      const bounds = this.renderer.getGridBounds();
+      this.input.updateConstraints(bounds, this.canvas.width, this.canvas.height);
+      return true;
+    } catch (err) {
+      console.error('Failed to load map:', err);
+      return false;
+    }
   }
 
   resize() {
