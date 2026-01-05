@@ -1,4 +1,4 @@
-import { Grid, Hex, EdgeState, HexState } from './grid.js';
+import { Grid, Hex, EdgeState, HexColor } from './grid.js';
 
 const COLORS = {
   bg0_hard: '#1d2021',
@@ -8,13 +8,11 @@ const COLORS = {
   bg2: '#504945',
   bg3: '#665c54',
   bg4: '#7c6f64',
-
   fg0: '#fbf1c7',
   fg1: '#ebdbb2',
   fg2: '#d5c4a1',
   fg3: '#bdae93',
   fg4: '#a89984',
-
   red: '#cc241d',
   green: '#98971a',
   yellow: '#d79921',
@@ -23,7 +21,6 @@ const COLORS = {
   aqua: '#689d6a',
   orange: '#d65d0e',
   gray: '#928374',
-
   red_bright: '#fb4934',
   green_bright: '#b8bb26',
   yellow_bright: '#fabd2f',
@@ -61,6 +58,13 @@ export class Renderer {
     ctx.translate(this.camera.x, this.camera.y);
 
     const intersections = new Map(); // Key: "x,y", Value: {x, y}
+
+    // Layer 0: Hex Fills
+    for (const hex of this.grid.getAllHexes()) {
+      if (hex.color !== HexColor.EMPTY) {
+        this.drawHexFill(ctx, hex);
+      }
+    }
 
     // Layer 1: Inactive Edges (State 2 or 3)
     for (const hex of this.grid.getAllHexes()) {
@@ -124,7 +128,7 @@ export class Renderer {
 
   drawHexFill(ctx: CanvasRenderingContext2D, hex: Hex, corners?: { x: number; y: number }[]) {
     if (!corners) corners = this.getHexCorners(hex);
-    const { active } = hex;
+    const { color } = hex;
 
     ctx.beginPath();
     ctx.moveTo(corners[0]!.x, corners[0]!.y);
@@ -133,10 +137,10 @@ export class Renderer {
     }
     ctx.closePath();
 
-    if (active === HexState.INSIDE) {
+    if (color === HexColor.YELLOW) {
       ctx.fillStyle = COLORS.yellow_bright + '80';
       ctx.fill();
-    } else if (active === HexState.OUTSIDE) {
+    } else if (color === HexColor.PURPLE) {
       ctx.fillStyle = COLORS.purple + '80';
       ctx.fill();
     }

@@ -92,7 +92,7 @@ class Game {
                     return;
                 if (hit.type === 'hex') {
                     const hex = hit.target;
-                    hex.active = ((hex.active % 2) + 1);
+                    this.grid.cycleHexColor(hex);
                 }
                 else if (hit.type === 'edge') {
                     const hex = hit.target;

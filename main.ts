@@ -1,4 +1,4 @@
-import { Grid, EdgeState, HexState } from './grid.js';
+import { Grid, EdgeState } from './grid.js';
 import { Renderer } from './renderer.js';
 import { InputHandler } from './input.js';
 
@@ -116,7 +116,7 @@ class Game {
 
         if (hit.type === 'hex') {
           const hex = hit.target;
-          hex.active = ((hex.active % 2) + 1) as HexState;
+          this.grid.cycleHexColor(hex);
         } else if (hit.type === 'edge') {
           const hex = hit.target;
           const edgeIndex = hit.edgeIndex!;

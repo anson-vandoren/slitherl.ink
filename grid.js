@@ -1,10 +1,15 @@
-// Hexagon Region State
 export var HexState;
 (function (HexState) {
     HexState[HexState["UNKNOWN"] = 0] = "UNKNOWN";
     HexState[HexState["INSIDE"] = 1] = "INSIDE";
     HexState[HexState["OUTSIDE"] = 2] = "OUTSIDE";
 })(HexState || (HexState = {}));
+export var HexColor;
+(function (HexColor) {
+    HexColor[HexColor["EMPTY"] = 0] = "EMPTY";
+    HexColor[HexColor["YELLOW"] = 1] = "YELLOW";
+    HexColor[HexColor["PURPLE"] = 2] = "PURPLE";
+})(HexColor || (HexColor = {}));
 // Edge State
 export var EdgeState;
 (function (EdgeState) {
@@ -66,7 +71,65 @@ export class Grid {
             q,
             r,
             active: HexState.UNKNOWN,
+            color: HexColor.EMPTY,
         });
+    }
+    cycleHexColor(hex) {
+        if (hex.color === HexColor.EMPTY) {
+            let guess = HexColor.YELLOW;
+            let foundClue = false;
+            // 1. Check Map Edges
+            let onMapEdge = false;
+            let mapEdgeActive = false;
+            let mapEdgeOff = false;
+            for (let dir = 0; dir < 6; dir++) {
+                const neighbor = this.getNeighbor(hex.q, hex.r, dir);
+                if (!neighbor) {
+                    onMapEdge = true;
+                    const edgeState = this.getEdgeState(hex.q, hex.r, dir);
+                    if (edgeState === EdgeState.ACTIVE)
+                        mapEdgeActive = true;
+                    if (edgeState === EdgeState.OFF || edgeState === EdgeState.CALCULATED_OFF)
+                        mapEdgeOff = true;
+                }
+            }
+            if (onMapEdge) {
+                if (mapEdgeActive) {
+                    guess = HexColor.YELLOW;
+                    foundClue = true;
+                }
+                else if (mapEdgeOff) {
+                    guess = HexColor.PURPLE;
+                    foundClue = true;
+                }
+            }
+            // 2. Check Neighbors (if no map edge clue found)
+            if (!foundClue) {
+                for (let dir = 0; dir < 6; dir++) {
+                    const neighbor = this.getNeighbor(hex.q, hex.r, dir);
+                    if (neighbor && neighbor.color !== HexColor.EMPTY) {
+                        const edgeState = this.getEdgeState(hex.q, hex.r, dir);
+                        if (edgeState === EdgeState.ACTIVE) {
+                            guess = neighbor.color === HexColor.YELLOW ? HexColor.PURPLE : HexColor.YELLOW;
+                            foundClue = true;
+                            break;
+                        }
+                        else if (edgeState === EdgeState.OFF || edgeState === EdgeState.CALCULATED_OFF) {
+                            guess = neighbor.color;
+                            foundClue = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            hex.color = guess;
+        }
+        else if (hex.color === HexColor.YELLOW) {
+            hex.color = HexColor.PURPLE;
+        }
+        else {
+            hex.color = HexColor.EMPTY;
+        }
     }
     getHex(q, r) {
         return this.hexagons.get(`${q},${r}`);
