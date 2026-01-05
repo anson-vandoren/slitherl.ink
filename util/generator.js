@@ -274,10 +274,10 @@ function canToggle(targetHex, allHexes, radius) {
 
 // Run
 const SIZES = {
-  small: 3,
-  medium: 5,
-  large: 8,
-  huge: 11,
+  small: 2,
+  medium: 4,
+  large: 7,
+  huge: 10,
 };
 
 const MAPS_PER_SIZE = 1;

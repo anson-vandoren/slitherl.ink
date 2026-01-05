@@ -22,7 +22,7 @@ class ProgressManager {
 }
 class Game {
     canvas;
-    state;
+    camera;
     grid;
     renderer;
     input;
@@ -35,14 +35,11 @@ class Game {
         if (!canvas)
             throw new Error('Canvas not found');
         this.canvas = canvas;
-        this.state = {
-            radius: 5,
-            camera: { x: 0, y: 0, zoom: 1 },
-        };
-        this.grid = new Grid(this.state.radius);
-        this.renderer = new Renderer(this.grid, this.state.camera);
+        this.camera = { x: 0, y: 0, zoom: 1 };
+        this.grid = new Grid();
+        this.renderer = new Renderer(this.grid, this.camera);
         this.progressManager = new ProgressManager();
-        this.input = new InputHandler(this.canvas, this.state.camera, {
+        this.input = new InputHandler(this.canvas, this.camera, {
             onTap: (x, y) => {
                 const hit = this.renderer.getHit(this.canvas, x, y);
                 if (!hit)
@@ -110,7 +107,6 @@ class Game {
             .then((buffer) => {
             console.log('Loading map binary...');
             this.grid.loadBinaryMap(buffer);
-            this.state.radius = this.grid.radius;
             this.renderer.render(this.canvas);
             // Update constraints
             const bounds = this.renderer.getGridBounds();

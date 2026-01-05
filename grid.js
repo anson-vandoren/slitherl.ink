@@ -41,12 +41,11 @@ export class Grid {
     hexagons;
     edgeStates;
     solutionEdges;
-    constructor(radius) {
-        this.radius = radius;
+    constructor() {
+        this.radius = -1;
         this.hexagons = new Map();
         this.edgeStates = new Map();
         this.solutionEdges = new Set();
-        this.generateGrid();
     }
     generateGrid() {
         for (let q = -this.radius; q <= this.radius; q++) {

@@ -51,12 +51,11 @@ export class Grid {
   edgeStates: Map<string, EdgeState>;
   solutionEdges: Set<string>;
 
-  constructor(radius: number) {
-    this.radius = radius;
+  constructor() {
+    this.radius = -1;
     this.hexagons = new Map();
     this.edgeStates = new Map();
     this.solutionEdges = new Set();
-    this.generateGrid();
   }
 
   generateGrid() {
