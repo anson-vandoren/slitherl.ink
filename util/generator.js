@@ -280,7 +280,7 @@ const SIZES = {
   huge: 10,
 };
 
-const MAPS_PER_SIZE = 1;
+const MAPS_PER_SIZE = 200;
 
 for (const [sizeName, radius] of Object.entries(SIZES)) {
   console.log(`Generating maps for ${sizeName} (radius ${radius})...`);
