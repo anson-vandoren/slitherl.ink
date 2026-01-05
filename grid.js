@@ -91,8 +91,6 @@ export class Grid {
         const n2 = this.getNeighbor(hex.q, hex.r, e2Index);
         let s3 = -1; // -1 means invalid/boundary
         let setS3 = null; // function to set s3 if needed
-        const n1Dir = e1Index;
-        const n2Dir = e2Index;
         // Determine direction from N1 to N2 (relative to N1)
         // Formula: (cornerIndex + 1) % 6
         const dirN1toN2 = (cornerIndex + 1) % 6;

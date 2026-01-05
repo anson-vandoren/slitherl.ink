@@ -29,49 +29,45 @@ const COLORS = {
     gray_bright: '#a89984',
 };
 export class Renderer {
-    canvas;
-    ctx;
     grid;
     camera;
     hexSize;
-    constructor(canvas, grid, camera) {
-        this.canvas = canvas;
-        this.ctx = canvas.getContext('2d', { alpha: false });
+    constructor(grid, camera) {
         this.grid = grid;
         this.camera = camera;
         this.hexSize = 30; // Base size of hexagon
     }
-    render() {
-        this.ctx.fillStyle = COLORS.bg0_hard;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        this.ctx.strokeStyle = COLORS.gray;
-        this.ctx.lineWidth = 1;
-        this.ctx.setLineDash([5, 5]);
-        this.ctx.save();
+    render(canvas) {
+        let ctx = canvas.getContext('2d', { alpha: false });
+        ctx.fillStyle = COLORS.bg0_hard;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = COLORS.gray;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.save();
         // Center the camera
-        this.ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
-        this.ctx.scale(this.camera.zoom, this.camera.zoom);
-        this.ctx.translate(this.camera.x, this.camera.y);
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.scale(this.camera.zoom, this.camera.zoom);
+        ctx.translate(this.camera.x, this.camera.y);
         const intersections = new Map(); // Key: "x,y", Value: {x, y}
         // Layer 1: Inactive Edges (State 2 or 3)
         for (const hex of this.grid.getAllHexes()) {
             const corners = this.getHexCorners(hex);
-            this.drawHexEdges(hex, corners, 'inactive');
+            this.drawHexEdges(ctx, hex, corners, 'inactive');
         }
         // Layer 2: Neutral Edges (State 0)
         for (const hex of this.grid.getAllHexes()) {
             const corners = this.getHexCorners(hex);
-            this.drawHexEdges(hex, corners, 'neutral');
+            this.drawHexEdges(ctx, hex, corners, 'neutral');
         }
-        // Layer 3: Fills
         // Layer 3: Numbers (instead of Fills)
         for (const hex of this.grid.getAllHexes()) {
-            this.drawHexNumber(hex);
+            this.drawHexNumber(ctx, hex);
         }
         // Layer 4: Active Edges (State 1)
         for (const hex of this.grid.getAllHexes()) {
             const corners = this.getHexCorners(hex);
-            this.drawHexEdges(hex, corners, 'active');
+            this.drawHexEdges(ctx, hex, corners, 'active');
             // Collect corners for intersection rendering (only need to do this once)
             for (const p of corners) {
                 const k = `${Math.round(p.x * 100)},${Math.round(p.y * 100)}`;
@@ -81,14 +77,14 @@ export class Renderer {
             }
         }
         // Draw intersections
-        this.ctx.fillStyle = COLORS.fg2;
+        ctx.fillStyle = COLORS.fg2;
         for (const p of intersections.values()) {
-            this.ctx.beginPath();
+            ctx.beginPath();
             // Radius 2 looks good for standard zoom
-            this.ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
-            this.ctx.fill();
+            ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+            ctx.fill();
         }
-        this.ctx.restore();
+        ctx.restore();
     }
     getHexCorners(hex) {
         const { q, r } = hex;
@@ -105,26 +101,26 @@ export class Renderer {
         }
         return corners;
     }
-    drawHexFill(hex, corners) {
+    drawHexFill(ctx, hex, corners) {
         if (!corners)
             corners = this.getHexCorners(hex);
         const { active } = hex;
-        this.ctx.beginPath();
-        this.ctx.moveTo(corners[0].x, corners[0].y);
+        ctx.beginPath();
+        ctx.moveTo(corners[0].x, corners[0].y);
         for (let i = 1; i < 6; i++) {
-            this.ctx.lineTo(corners[i].x, corners[i].y);
+            ctx.lineTo(corners[i].x, corners[i].y);
         }
-        this.ctx.closePath();
+        ctx.closePath();
         if (active === 1) {
-            this.ctx.fillStyle = COLORS.yellow_bright + '80';
-            this.ctx.fill();
+            ctx.fillStyle = COLORS.yellow_bright + '80';
+            ctx.fill();
         }
         else if (active === 2) {
-            this.ctx.fillStyle = COLORS.purple + '80';
-            this.ctx.fill();
+            ctx.fillStyle = COLORS.purple + '80';
+            ctx.fill();
         }
     }
-    drawHexEdges(hex, corners, layerType) {
+    drawHexEdges(ctx, hex, corners, layerType) {
         if (!corners)
             corners = this.getHexCorners(hex);
         const { activeEdges } = hex;
@@ -154,35 +150,35 @@ export class Renderer {
                 continue;
             const p1 = corners[i];
             const p2 = corners[(i + 1) % 6];
-            this.ctx.beginPath();
-            this.ctx.moveTo(p1.x, p1.y);
-            this.ctx.lineTo(p2.x, p2.y);
+            ctx.beginPath();
+            ctx.moveTo(p1.x, p1.y);
+            ctx.lineTo(p2.x, p2.y);
             if (state === 0) {
                 // Neutral (0)
-                this.ctx.strokeStyle = COLORS.gray;
-                this.ctx.lineWidth = 1;
-                this.ctx.setLineDash([1, 3]);
-                this.ctx.lineCap = 'butt';
-                this.ctx.lineJoin = 'miter';
-                this.ctx.stroke();
+                ctx.strokeStyle = COLORS.gray;
+                ctx.lineWidth = 1;
+                ctx.setLineDash([1, 3]);
+                ctx.lineCap = 'butt';
+                ctx.lineJoin = 'miter';
+                ctx.stroke();
             }
             else if (state === 1) {
                 // Active (1)
-                this.ctx.strokeStyle = COLORS.fg2;
-                this.ctx.lineWidth = 3;
-                this.ctx.setLineDash([]);
-                this.ctx.lineCap = 'round';
-                this.ctx.lineJoin = 'round';
-                this.ctx.stroke();
+                ctx.strokeStyle = COLORS.fg2;
+                ctx.lineWidth = 3;
+                ctx.setLineDash([]);
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.stroke();
             }
             else if (state === 2 || state === 3) {
                 // Inactive (2 or 3)
-                this.ctx.strokeStyle = COLORS.bg0_soft;
-                this.ctx.lineWidth = 1;
-                this.ctx.setLineDash([1, 3]);
-                this.ctx.lineCap = 'butt';
-                this.ctx.lineJoin = 'miter';
-                this.ctx.stroke();
+                ctx.strokeStyle = COLORS.bg0_soft;
+                ctx.lineWidth = 1;
+                ctx.setLineDash([1, 3]);
+                ctx.lineCap = 'butt';
+                ctx.lineJoin = 'miter';
+                ctx.stroke();
                 if (state === 2) {
                     // Check visibility condition for X
                     // Condition: If hex.active > 0 OR (neighbor && neighbor.active > 0), SKIP X
@@ -195,33 +191,33 @@ export class Renderer {
                         const midX = (p1.x + p2.x) / 2;
                         const midY = (p1.y + p2.y) / 2;
                         const s = 4;
-                        this.ctx.beginPath();
-                        this.ctx.moveTo(midX - s, midY - s);
-                        this.ctx.lineTo(midX + s, midY + s);
-                        this.ctx.moveTo(midX + s, midY - s);
-                        this.ctx.lineTo(midX - s, midY + s);
-                        this.ctx.setLineDash([]);
-                        this.ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(midX - s, midY - s);
+                        ctx.lineTo(midX + s, midY + s);
+                        ctx.moveTo(midX + s, midY - s);
+                        ctx.lineTo(midX - s, midY + s);
+                        ctx.setLineDash([]);
+                        ctx.stroke();
                     }
                 }
             }
         }
     }
-    drawHexNumber(hex) {
+    drawHexNumber(ctx, hex) {
         if (!hex.showNumber)
             return;
         const { q, r } = hex;
         const x = this.hexSize * (1.5 * q);
         const y = this.hexSize * ((Math.sqrt(3) / 2) * q + Math.sqrt(3) * r);
-        this.ctx.fillStyle = COLORS.fg0;
-        this.ctx.font = '20px sans-serif';
-        this.ctx.textAlign = 'center';
-        this.ctx.textBaseline = 'middle';
-        this.ctx.fillText(hex.targetCount?.toString() ?? '', x, y);
+        ctx.fillStyle = COLORS.fg0;
+        ctx.font = '20px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(hex.targetCount?.toString() ?? '', x, y);
     }
-    screenToWorld(screenX, screenY) {
-        const w = this.canvas.width;
-        const h = this.canvas.height;
+    screenToWorld(canvas, screenX, screenY) {
+        const w = canvas.width;
+        const h = canvas.height;
         const x = (screenX - w / 2) / this.camera.zoom - this.camera.x;
         const y = (screenY - h / 2) / this.camera.zoom - this.camera.y;
         return { x, y };
@@ -249,8 +245,8 @@ export class Renderer {
         }
         return { q, r, s };
     }
-    getHit(screenX, screenY) {
-        const p = this.screenToWorld(screenX, screenY);
+    getHit(canvas, screenX, screenY) {
+        const p = this.screenToWorld(canvas, screenX, screenY);
         const hexCoords = this.pixelToHex(p.x, p.y);
         const hex = this.grid.getHex(hexCoords.q, hexCoords.r);
         // Calculate geometry relative to the theoretical hex center

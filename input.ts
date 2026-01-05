@@ -219,8 +219,6 @@ export class InputHandler {
   }
 
   applyZoom(factor: number, centerX: number, centerY: number) {
-    const rect = this.canvas.getBoundingClientRect();
-
     // Calculate world position of center before zoom
     // screenX = (worldX + camX) * zoom + width/2
     // worldX = (screenX - width/2) / zoom - camX

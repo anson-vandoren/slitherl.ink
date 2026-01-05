@@ -24,10 +24,10 @@ class Game {
       camera: { x: 0, y: 0, zoom: 1 },
     };
     this.grid = new Grid(this.state.radius);
-    this.renderer = new Renderer(this.canvas, this.grid, this.state.camera);
+    this.renderer = new Renderer(this.grid, this.state.camera);
     this.input = new InputHandler(this.canvas, this.state.camera, {
       onTap: (x, y) => {
-        const hit = this.renderer.getHit(x, y);
+        const hit = this.renderer.getHit(this.canvas, x, y);
         if (!hit) return;
 
         if (hit.type === 'hex') {
@@ -54,7 +54,7 @@ class Game {
       .then((buffer: ArrayBuffer) => {
         this.grid.loadBinaryMap(buffer);
         this.state.radius = this.grid.radius;
-        this.renderer.render();
+        this.renderer.render(this.canvas);
 
         // Update constraints
         const bounds = this.renderer.getGridBounds();
@@ -75,11 +75,11 @@ class Game {
       this.canvas.width,
       this.canvas.height
     );
-    this.renderer.render();
+    this.renderer.render(this.canvas);
   }
 
   loop() {
-    this.renderer.render();
+    this.renderer.render(this.canvas);
     requestAnimationFrame(() => this.loop());
   }
 }

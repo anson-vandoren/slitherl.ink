@@ -11,7 +11,9 @@
     "checkJs": false,
     "noUncheckedIndexedAccess": true,
     "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
   "include": ["./**/*.ts"],
   "exclude": ["node_modules"]
