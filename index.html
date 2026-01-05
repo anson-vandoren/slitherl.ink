@@ -35,24 +35,12 @@
       </div>
     </div>
     <canvas id="app"></canvas>
-    <button
-      id="debug-win-btn"
-      style="
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        z-index: 200;
-        padding: 10px;
-        background: red;
-        color: white;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-        opacity: 0.7;
-      "
-    >
-      Simulate Win
-    </button>
+    <div id="win-screen" class="hidden">
+      <div class="splash-content">
+        <h1>Level Complete!</h1>
+        <button id="next-level-btn">Next Level</button>
+      </div>
+    </div>
     <script type="module" src="main.js"></script>
   </body>
 </html>

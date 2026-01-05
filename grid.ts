@@ -480,4 +480,23 @@ export class Grid {
   deriveEdgesFromRegions() {
     // Deprecated for Puzzle Mode.
   }
+
+  isSolved(): boolean {
+    for (const hex of this.hexagons.values()) {
+      const isInside = hex.active === HexState.INSIDE;
+
+      for (let dir = 0; dir < 6; dir++) {
+        const edgeState = hex.activeEdges[dir];
+        const neighbor = this.getNeighbor(hex.q, hex.r, dir as EdgeDirection);
+        const neighborIsInside = neighbor ? neighbor.active === HexState.INSIDE : false;
+
+        const isBoundary = isInside !== neighborIsInside;
+        const isActive = edgeState === EdgeState.ACTIVE;
+
+        if (isBoundary && !isActive) return false;
+        if (!isBoundary && isActive) return false;
+      }
+    }
+    return true;
+  }
 }

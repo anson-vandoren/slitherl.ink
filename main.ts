@@ -139,12 +139,20 @@ class Game {
   }
 
   checkWin() {
-    // Placeholder for win condition
-    // If win:
-    // this.progressManager.saveProgress(this.currentSize, this.currentDifficulty, this.currentLevelIndex);
-    // alert("You Win! Loading next level...");
-    // this.currentLevelIndex++;
-    // this.loadNextLevel();
+    if (this.grid.isSolved()) {
+      console.log('Puzzle Solved!');
+      // Slight delay to allow the last line to render
+      setTimeout(() => {
+        alert('Level Complete!');
+        this.progressManager.saveProgress(
+          this.currentSize,
+          this.currentDifficulty,
+          this.currentLevelIndex
+        );
+        this.currentLevelIndex++;
+        this.loadNextLevel();
+      }, 50);
+    }
   }
 
   loadMap(mapFile: string) {
