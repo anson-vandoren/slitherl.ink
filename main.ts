@@ -7,7 +7,7 @@ type GameState = {
   camera: { x: number; y: number; zoom: number };
 };
 
-type MapSize = 'small' | 'medium' | 'large';
+type MapSize = 'small' | 'medium' | 'large' | 'huge';
 type Difficulty = 'easy' | 'medium' | 'hard';
 
 class ProgressManager {
@@ -113,12 +113,8 @@ class Game {
   }
 
   loadNextLevel() {
-    // TODO: Logic to fetch specific map based on size/difficulty/index
-    // For now, we just load 'map.bin' as a placeholder or we could fetch from a structured path
-    // const mapPath = `maps/${this.currentSize}/${this.currentDifficulty}/${this.currentLevelIndex}.bin`;
-
-    // FALLBACK for now since we don't have the directory structure yet
-    const mapPath = 'map.bin';
+    // Construct path to the map file
+    const mapPath = `maps/${this.currentSize}/${this.currentLevelIndex}.bin`;
 
     this.loadMap(mapPath);
   }

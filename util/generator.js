@@ -1,4 +1,4 @@
-const fs = require('fs');
+import fs from 'fs';
 
 /**
  * Coordinate helpers
@@ -273,16 +273,29 @@ function canToggle(targetHex, allHexes, radius) {
 }
 
 // Run
-const RADIUS = 5;
-const mapData = generateMap(RADIUS);
+const SIZES = {
+  small: 3,
+  medium: 5,
+  large: 8,
+  huge: 11,
+};
 
-// Save JSON (Legacy) for reference if needed, but we'll focus on binary
-const outputData = JSON.stringify(mapData, null, 2);
-// fs.writeFileSync('map.json', outputData);
-// console.log(`Saved to map.json`);
+const MAPS_PER_SIZE = 1;
 
-// Save Binary
-saveBinaryMap(mapData);
+for (const [sizeName, radius] of Object.entries(SIZES)) {
+  console.log(`Generating maps for ${sizeName} (radius ${radius})...`);
+  const dirPath = `maps/${sizeName}`; // Relative to CWD (root)
+
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+
+  for (let i = 0; i < MAPS_PER_SIZE; i++) {
+    const mapData = generateMap(radius);
+    const filename = `${dirPath}/${i}.bin`;
+    saveBinaryMap(mapData, filename);
+  }
+}
 
 /**
  * Saves map data to a compact binary format.
@@ -296,7 +309,7 @@ saveBinaryMap(mapData);
  * Bit 4: Show Number Flag (1=Show, 0=Hide)
  * Bit 5-7: Reserved (0)
  */
-function saveBinaryMap(mapData) {
+function saveBinaryMap(mapData, filename) {
   const radius = mapData.radius;
   const hexes = mapData.hexes;
 
@@ -358,6 +371,6 @@ function saveBinaryMap(mapData) {
     }
   }
 
-  fs.writeFileSync('map.bin', buffer);
-  console.log(`Saved to map.bin (${buffer.length} bytes)`);
+  fs.writeFileSync(filename, buffer);
+  console.log(`Saved to ${filename} (${buffer.length} bytes)`);
 }
