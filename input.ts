@@ -134,8 +134,8 @@ export class InputHandler {
       // Multi touch - start pinching, stop panning
       this.isDragging = false;
       this.prevDiff = Math.hypot(
-        this.evCache[0].clientX - this.evCache[1].clientX,
-        this.evCache[0].clientY - this.evCache[1].clientY
+        this.evCache[0]!.clientX - this.evCache[1]!.clientX,
+        this.evCache[0]!.clientY - this.evCache[1]!.clientY
       );
     }
   }
@@ -150,14 +150,14 @@ export class InputHandler {
     if (this.evCache.length === 2) {
       // Pinch-to-zoom
       const curDiff = Math.hypot(
-        this.evCache[0].clientX - this.evCache[1].clientX,
-        this.evCache[0].clientY - this.evCache[1].clientY
+        this.evCache[0]!.clientX - this.evCache[1]!.clientX,
+        this.evCache[0]!.clientY - this.evCache[1]!.clientY
       );
 
       if (this.prevDiff > 0) {
         // Calculate zoom center (midpoint between two fingers)
-        const midX = (this.evCache[0].clientX + this.evCache[1].clientX) / 2;
-        const midY = (this.evCache[0].clientY + this.evCache[1].clientY) / 2;
+        const midX = (this.evCache[0]!.clientX + this.evCache[1]!.clientX) / 2;
+        const midY = (this.evCache[0]!.clientY + this.evCache[1]!.clientY) / 2;
 
         const zoomFactor = curDiff / this.prevDiff;
         this.applyZoom(zoomFactor, midX, midY);
@@ -207,7 +207,7 @@ export class InputHandler {
     } else if (this.evCache.length === 1) {
       // Resume panning with the remaining finger
       this.isDragging = true;
-      this.lastPos = { x: this.evCache[0].clientX, y: this.evCache[0].clientY };
+      this.lastPos = { x: this.evCache[0]!.clientX, y: this.evCache[0]!.clientY };
     }
   }
 

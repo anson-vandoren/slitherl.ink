@@ -135,9 +135,9 @@ export class Renderer {
     const { active } = hex;
 
     this.ctx.beginPath();
-    this.ctx.moveTo(corners[0].x, corners[0].y);
+    this.ctx.moveTo(corners[0]!.x, corners[0]!.y);
     for (let i = 1; i < 6; i++) {
-      this.ctx.lineTo(corners[i].x, corners[i].y);
+      this.ctx.lineTo(corners[i]!.x, corners[i]!.y);
     }
     this.ctx.closePath();
 
@@ -176,8 +176,8 @@ export class Renderer {
 
       if (!matchesLayer) continue;
 
-      const p1 = corners[i];
-      const p2 = corners[(i + 1) % 6];
+      const p1 = corners[i]!;
+      const p2 = corners[(i + 1) % 6]!;
       this.ctx.beginPath();
       this.ctx.moveTo(p1.x, p1.y);
       this.ctx.lineTo(p2.x, p2.y);

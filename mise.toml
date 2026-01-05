@@ -1,5 +1,6 @@
 [tools]
 node = "latest"
+"npm:live-server" = "latest"
 
 [tasks]
 build = "npm run build"
@@ -19,4 +20,7 @@ git push
 """
 
 [tasks.serve]
-run = "python3 -m http.server 8000"
+run = "live-server --port=8000 --no-browser"
+
+[tasks.tsc]
+run = "watchexec -e ts npm run build"

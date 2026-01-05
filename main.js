@@ -8,7 +8,10 @@ class Game {
     renderer;
     input;
     constructor() {
-        this.canvas = document.getElementsByTagName('canvas')[0];
+        let canvas = document.getElementsByTagName('canvas').namedItem('app');
+        if (!canvas)
+            throw new Error('Canvas not found');
+        this.canvas = canvas;
         this.state = {
             radius: 5,
             camera: { x: 0, y: 0, zoom: 1 },
@@ -28,7 +31,7 @@ class Game {
                     const hex = hit.target;
                     const edgeIndex = hit.edgeIndex;
                     // Toggle edge on current hex
-                    const currentState = hex.activeEdges[edgeIndex];
+                    const currentState = hex.activeEdges[edgeIndex] ?? 0;
                     const newState = (currentState + 1) % 3;
                     this.grid.setEdgeState(hex.q, hex.r, edgeIndex, newState);
                 }

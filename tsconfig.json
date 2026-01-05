@@ -8,7 +8,10 @@
     "forceConsistentCasingInFileNames": true,
     "outDir": "./",
     "allowJs": false,
-    "checkJs": false
+    "checkJs": false,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true
   },
   "include": ["./**/*.ts"],
   "exclude": ["node_modules"]

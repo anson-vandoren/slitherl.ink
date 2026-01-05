@@ -1,3 +1,12 @@
+var HexDirection;
+(function (HexDirection) {
+    HexDirection[HexDirection["SE"] = 0] = "SE";
+    HexDirection[HexDirection["S"] = 1] = "S";
+    HexDirection[HexDirection["SW"] = 2] = "SW";
+    HexDirection[HexDirection["NW"] = 3] = "NW";
+    HexDirection[HexDirection["N"] = 4] = "N";
+    HexDirection[HexDirection["NE"] = 5] = "NE";
+})(HexDirection || (HexDirection = {}));
 export class Grid {
     radius;
     hexagons;
@@ -43,6 +52,8 @@ export class Grid {
             { dq: 1, dr: -1 }, // 5
         ];
         const d = directions[direction];
+        if (!d)
+            return undefined;
         return this.getHex(q + d.dq, r + d.dr);
     }
     getAllHexes() {
@@ -67,15 +78,13 @@ export class Grid {
         this.checkVertex(hex, (edgeIndex + 1) % 6);
     }
     checkVertex(hex, cornerIndex) {
-        if (!hex)
-            return;
         // Identify the three edges meeting at this vertex (Corner i)
         // 1. Edge (i-1) of this hex (previous edge)
         const e1Index = (cornerIndex + 5) % 6;
-        const s1 = hex.activeEdges[e1Index];
+        const s1 = hex.activeEdges[e1Index] ?? 0;
         // 2. Edge i of this hex (current edge/next edge from corner)
         const e2Index = cornerIndex;
-        const s2 = hex.activeEdges[e2Index];
+        const s2 = hex.activeEdges[e2Index] ?? 0;
         // 3. The edge connecting the two neighbors
         // Neighbors are in direction of e1 and e2
         const n1 = this.getNeighbor(hex.q, hex.r, e1Index);
@@ -92,14 +101,14 @@ export class Grid {
         const dirN2toN1 = (cornerIndex + 4) % 6;
         if (n1) {
             // If N1 exists, s3 is the edge of N1 towards N2
-            s3 = n1.activeEdges[dirN1toN2];
+            s3 = n1.activeEdges[dirN1toN2] ?? 0;
             setS3 = (newState) => {
                 this.setEdgeState(n1.q, n1.r, dirN1toN2, newState);
             };
         }
         else if (n2) {
             // If N1 is missing but N2 exists, s3 is the edge of N2 towards N1
-            s3 = n2.activeEdges[dirN2toN1];
+            s3 = n2.activeEdges[dirN2toN1] ?? 0;
             setS3 = (newState) => {
                 this.setEdgeState(n2.q, n2.r, dirN2toN1, newState);
             };
