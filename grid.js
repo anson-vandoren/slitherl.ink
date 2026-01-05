@@ -1,3 +1,18 @@
+// Hexagon Region State
+export var HexState;
+(function (HexState) {
+    HexState[HexState["UNKNOWN"] = 0] = "UNKNOWN";
+    HexState[HexState["INSIDE"] = 1] = "INSIDE";
+    HexState[HexState["OUTSIDE"] = 2] = "OUTSIDE";
+})(HexState || (HexState = {}));
+// Edge State
+export var EdgeState;
+(function (EdgeState) {
+    EdgeState[EdgeState["UNKNOWN"] = 0] = "UNKNOWN";
+    EdgeState[EdgeState["ACTIVE"] = 1] = "ACTIVE";
+    EdgeState[EdgeState["OFF"] = 2] = "OFF";
+    EdgeState[EdgeState["CALCULATED_OFF"] = 3] = "CALCULATED_OFF";
+})(EdgeState || (EdgeState = {}));
 var EdgeDirection;
 (function (EdgeDirection) {
     EdgeDirection[EdgeDirection["SE"] = 0] = "SE";
@@ -56,8 +71,15 @@ export class Grid {
         this.hexagons.set(key, {
             q,
             r,
-            active: 0,
-            activeEdges: [0, 0, 0, 0, 0, 0],
+            active: HexState.UNKNOWN,
+            activeEdges: [
+                EdgeState.UNKNOWN,
+                EdgeState.UNKNOWN,
+                EdgeState.UNKNOWN,
+                EdgeState.UNKNOWN,
+                EdgeState.UNKNOWN,
+                EdgeState.UNKNOWN,
+            ],
         });
     }
     /**
@@ -117,9 +139,9 @@ export class Grid {
      */
     isGrounded(hex, edgeIndex, visited = new Set()) {
         const val = hex.activeEdges[edgeIndex];
-        if (val === 2)
+        if (val === EdgeState.OFF)
             return true; // Intentional Off is ground
-        if (val !== 3)
+        if (val !== EdgeState.CALCULATED_OFF)
             return false; // 0 or 1 is not Off
         // Identify edge canonically
         // Use smaller coordinate hex to identify edge?
@@ -142,7 +164,7 @@ export class Grid {
             const e1Index = ((corner + 5) % 6);
             const e2Index = corner;
             let otherVal, otherIdx;
-            let neighborVal, neighborIdx = null;
+            let neighborIdx = null;
             let neighborHex = null;
             // Neighbor stuff
             const dirN1toN2 = ((corner + 1) % 6);
@@ -151,14 +173,12 @@ export class Grid {
             const n2 = this.getNeighbor(hex.q, hex.r, e2Index);
             let s3 = -1;
             if (n1) {
-                s3 = n1.activeEdges[dirN1toN2] ?? 0;
-                neighborVal = s3;
+                s3 = n1.activeEdges[dirN1toN2] ?? EdgeState.UNKNOWN;
                 neighborHex = n1;
                 neighborIdx = dirN1toN2;
             }
             else if (n2) {
-                s3 = n2.activeEdges[dirN2toN1] ?? 0;
-                neighborVal = s3;
+                s3 = n2.activeEdges[dirN2toN1] ?? EdgeState.UNKNOWN;
                 neighborHex = n2;
                 neighborIdx = dirN2toN1;
             }
@@ -173,30 +193,30 @@ export class Grid {
                 otherVal = hex.activeEdges[e1Index];
                 otherIdx = e1Index;
             }
-            let effS3 = s3 === -1 ? 3 : s3;
+            let effS3 = s3 === -1 ? EdgeState.CALCULATED_OFF : s3;
             // Logic forcesOff(other, neighbor)
             // Check if valid "Off" force exists
-            const otherActive = otherVal === 1;
-            const neighborActive = effS3 === 1;
+            const otherActive = otherVal === EdgeState.ACTIVE;
+            const neighborActive = effS3 === EdgeState.ACTIVE;
             if (otherActive && neighborActive)
                 return true; // 1 and 1 is a solid ground (Active constraints)
             // Inactive case
-            const otherInactive = otherVal === 2 || otherVal === 3;
-            const neighborInactive = effS3 === 2 || effS3 === 3;
+            const otherInactive = otherVal === EdgeState.OFF || otherVal === EdgeState.CALCULATED_OFF;
+            const neighborInactive = effS3 === EdgeState.OFF || effS3 === EdgeState.CALCULATED_OFF;
             if (otherInactive && neighborInactive) {
                 // Recursively check grounding
                 // For 'other' (local edge):
                 const otherGrounded = this.isGrounded(hex, otherIdx, visited);
                 // For 'neighbor' (s3):
                 let neighborGrounded = false;
-                if (effS3 === 3) {
+                if (effS3 === EdgeState.CALCULATED_OFF) {
                     if (s3 === -1)
                         neighborGrounded = true; // Boundary is grounded
                     else if (neighborHex && neighborIdx !== null) {
                         neighborGrounded = this.isGrounded(neighborHex, neighborIdx, visited);
                     }
                 }
-                else if (effS3 === 2) {
+                else if (effS3 === EdgeState.OFF) {
                     neighborGrounded = true;
                 }
                 return otherGrounded && neighborGrounded;
@@ -224,24 +244,24 @@ export class Grid {
         let s3 = -1;
         let neighborContext = null;
         if (n1) {
-            s3 = n1.activeEdges[dirN1toN2] ?? 0;
+            s3 = n1.activeEdges[dirN1toN2] ?? EdgeState.UNKNOWN;
             neighborContext = { hex: n1, edgeIndex: dirN1toN2 };
         }
         else if (n2) {
-            s3 = n2.activeEdges[dirN2toN1] ?? 0;
+            s3 = n2.activeEdges[dirN2toN1] ?? EdgeState.UNKNOWN;
             neighborContext = { hex: n2, edgeIndex: dirN2toN1 };
         }
-        let effectiveS3 = s3 === -1 ? 3 : s3;
+        let effectiveS3 = s3 === -1 ? EdgeState.CALCULATED_OFF : s3;
         // ForcesOff now checks grounding for 3s
         const forcesOff = (aVal, aHex, aIdx, bVal, bHex, bIdx) => {
-            const aActive = aVal === 1;
-            const bActive = bVal === 1;
+            const aActive = aVal === EdgeState.ACTIVE;
+            const bActive = bVal === EdgeState.ACTIVE;
             if (aActive && bActive)
                 return true;
             const isInactive = (val, h, idx) => {
-                if (val === 2)
+                if (val === EdgeState.OFF)
                     return true;
-                if (val === 3) {
+                if (val === EdgeState.CALCULATED_OFF) {
                     if (h && idx !== null)
                         return this.isGrounded(h, idx);
                     return true; // Boundary or unknown (assume grounded if no context, i.e. boundary)
@@ -277,34 +297,34 @@ export class Grid {
             return false;
         };
         // Check s1 (e1Index)
-        if (ctx.s1 === 0 && ctx.forcesE1) {
-            this.setEdgeState(hex.q, hex.r, ctx.e1Index, 3);
+        if (ctx.s1 === EdgeState.UNKNOWN && ctx.forcesE1) {
+            this.setEdgeState(hex.q, hex.r, ctx.e1Index, EdgeState.CALCULATED_OFF);
             ctx = this.getVertexState(hex, cornerIndex);
         }
-        else if (ctx.s1 === 3 && !ctx.forcesE1) {
+        else if (ctx.s1 === EdgeState.CALCULATED_OFF && !ctx.forcesE1) {
             if (!otherEndForcesOff(hex, ctx.e1Index, cornerIndex)) {
-                this.setEdgeState(hex.q, hex.r, ctx.e1Index, 0);
+                this.setEdgeState(hex.q, hex.r, ctx.e1Index, EdgeState.UNKNOWN);
                 ctx = this.getVertexState(hex, cornerIndex);
             }
         }
         // Check s2 (e2Index)
-        if (ctx.s2 === 0 && ctx.forcesE2) {
-            this.setEdgeState(hex.q, hex.r, ctx.e2Index, 3);
+        if (ctx.s2 === EdgeState.UNKNOWN && ctx.forcesE2) {
+            this.setEdgeState(hex.q, hex.r, ctx.e2Index, EdgeState.CALCULATED_OFF);
             ctx = this.getVertexState(hex, cornerIndex);
         }
-        else if (ctx.s2 === 3 && !ctx.forcesE2) {
+        else if (ctx.s2 === EdgeState.CALCULATED_OFF && !ctx.forcesE2) {
             if (!otherEndForcesOff(hex, ctx.e2Index, cornerIndex)) {
-                this.setEdgeState(hex.q, hex.r, ctx.e2Index, 0);
+                this.setEdgeState(hex.q, hex.r, ctx.e2Index, EdgeState.UNKNOWN);
                 ctx = this.getVertexState(hex, cornerIndex);
             }
         }
         // Check s3
         if (ctx.neighborContext) {
-            if (ctx.s3 === 0 && ctx.forcesS3) {
-                this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, 3);
+            if (ctx.s3 === EdgeState.UNKNOWN && ctx.forcesS3) {
+                this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, EdgeState.CALCULATED_OFF);
                 ctx = this.getVertexState(hex, cornerIndex);
             }
-            else if (ctx.s3 === 3 && !ctx.forcesS3) {
+            else if (ctx.s3 === EdgeState.CALCULATED_OFF && !ctx.forcesS3) {
                 const [v1, v2] = verticesForEdge(ctx.neighborContext.edgeIndex);
                 const startForcing = this.getVertexState(ctx.neighborContext.hex, v1);
                 const endForcing = this.getVertexState(ctx.neighborContext.hex, v2);
@@ -313,7 +333,7 @@ export class Grid {
                 const v2Forces = (endForcing.e1Index === ctx.neighborContext.edgeIndex && endForcing.forcesE1) ||
                     (endForcing.e2Index === ctx.neighborContext.edgeIndex && endForcing.forcesE2);
                 if (!v1Forces && !v2Forces) {
-                    this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, 0);
+                    this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, EdgeState.UNKNOWN);
                     ctx = this.getVertexState(hex, cornerIndex);
                 }
             }
@@ -351,7 +371,7 @@ export class Grid {
                 // or just use 1 and 2. The generator saves bit as (active===1 ? 1 : 0).
                 // So bit 1 means Inside (state 1), bit 0 means Outside (state 2).
                 const regionBit = byte & 0x1;
-                const active = regionBit === 1 ? 1 : 2;
+                const active = regionBit === 1 ? HexState.INSIDE : HexState.OUTSIDE;
                 const count = (byte >> 1) & 0x7;
                 const show = (byte >> 4) & 0x1;
                 const key = `${q},${r}`;
@@ -361,7 +381,14 @@ export class Grid {
                     active,
                     targetCount: count,
                     showNumber: show === 1,
-                    activeEdges: [0, 0, 0, 0, 0, 0], // Initialize to Neutral (0)
+                    activeEdges: [
+                        EdgeState.UNKNOWN,
+                        EdgeState.UNKNOWN,
+                        EdgeState.UNKNOWN,
+                        EdgeState.UNKNOWN,
+                        EdgeState.UNKNOWN,
+                        EdgeState.UNKNOWN,
+                    ], // Initialize to Neutral (0)
                 });
                 byteIndex++;
             }

@@ -1,4 +1,4 @@
-import { Grid } from './grid.js';
+import { Grid, EdgeState, HexState } from './grid.js';
 import { Renderer } from './renderer.js';
 import { InputHandler } from './input.js';
 
@@ -32,13 +32,13 @@ class Game {
 
         if (hit.type === 'hex') {
           const hex = hit.target;
-          hex.active = (hex.active + 1) % 3;
+          hex.active = ((hex.active % 2) + 1) as HexState;
         } else if (hit.type === 'edge') {
           const hex = hit.target;
           const edgeIndex = hit.edgeIndex!;
           // Toggle edge on current hex
-          const currentState = hex.activeEdges[edgeIndex] ?? 0;
-          const newState = (currentState + 1) % 3;
+          const currentState = hex.activeEdges[edgeIndex] ?? EdgeState.UNKNOWN;
+          const newState = ((currentState + 1) % 3) as EdgeState;
 
           this.grid.setEdgeState(hex.q, hex.r, edgeIndex, newState);
         }

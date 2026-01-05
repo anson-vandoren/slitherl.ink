@@ -1,3 +1,4 @@
+import { EdgeState, HexState } from './grid.js';
 const COLORS = {
     bg0_hard: '#1d2021',
     bg0: '#282828',
@@ -111,11 +112,11 @@ export class Renderer {
             ctx.lineTo(corners[i].x, corners[i].y);
         }
         ctx.closePath();
-        if (active === 1) {
+        if (active === HexState.INSIDE) {
             ctx.fillStyle = COLORS.yellow_bright + '80';
             ctx.fill();
         }
-        else if (active === 2) {
+        else if (active === HexState.OUTSIDE) {
             ctx.fillStyle = COLORS.purple + '80';
             ctx.fill();
         }
@@ -140,11 +141,12 @@ export class Renderer {
                 continue;
             const state = activeEdges[i];
             let matchesLayer = false;
-            if (layerType === 'inactive' && (state === 2 || state === 3))
+            if (layerType === 'inactive' &&
+                (state === EdgeState.OFF || state === EdgeState.CALCULATED_OFF))
                 matchesLayer = true;
-            else if (layerType === 'neutral' && state === 0)
+            else if (layerType === 'neutral' && state === EdgeState.UNKNOWN)
                 matchesLayer = true;
-            else if (layerType === 'active' && state === 1)
+            else if (layerType === 'active' && state === EdgeState.ACTIVE)
                 matchesLayer = true;
             if (!matchesLayer)
                 continue;
@@ -153,7 +155,7 @@ export class Renderer {
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
-            if (state === 0) {
+            if (state === EdgeState.UNKNOWN) {
                 // Neutral (0)
                 ctx.strokeStyle = COLORS.gray;
                 ctx.lineWidth = 1;
@@ -162,7 +164,7 @@ export class Renderer {
                 ctx.lineJoin = 'miter';
                 ctx.stroke();
             }
-            else if (state === 1) {
+            else if (state === EdgeState.ACTIVE) {
                 // Active (1)
                 ctx.strokeStyle = COLORS.fg2;
                 ctx.lineWidth = 3;
@@ -171,7 +173,7 @@ export class Renderer {
                 ctx.lineJoin = 'round';
                 ctx.stroke();
             }
-            else if (state === 2 || state === 3) {
+            else if (state === EdgeState.OFF || state === EdgeState.CALCULATED_OFF) {
                 // Inactive (2 or 3)
                 ctx.strokeStyle = COLORS.bg0_soft;
                 ctx.lineWidth = 1;
@@ -179,7 +181,7 @@ export class Renderer {
                 ctx.lineCap = 'butt';
                 ctx.lineJoin = 'miter';
                 ctx.stroke();
-                if (state === 2) {
+                if (state === EdgeState.OFF) {
                     const midX = (p1.x + p2.x) / 2;
                     const midY = (p1.y + p2.y) / 2;
                     const s = 4;
