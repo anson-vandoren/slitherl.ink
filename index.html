@@ -10,7 +10,49 @@
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
+    <div id="splash">
+      <div class="splash-content">
+        <h1>Slitherlink</h1>
+        <div class="controls">
+          <div class="control-group">
+            <label for="size-select">Size</label>
+            <select id="size-select">
+              <option value="small">Small</option>
+              <option value="medium" selected>Medium</option>
+              <option value="large">Large</option>
+            </select>
+          </div>
+          <div class="control-group">
+            <label for="difficulty-select">Difficulty</label>
+            <select id="difficulty-select">
+              <option value="easy">Easy</option>
+              <option value="medium" selected>Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </div>
+        </div>
+        <button id="start-btn">Start Game</button>
+      </div>
+    </div>
     <canvas id="app"></canvas>
+    <button
+      id="debug-win-btn"
+      style="
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        z-index: 200;
+        padding: 10px;
+        background: red;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        opacity: 0.7;
+      "
+    >
+      Simulate Win
+    </button>
     <script type="module" src="main.js"></script>
   </body>
 </html>

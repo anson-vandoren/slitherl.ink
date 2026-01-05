@@ -479,12 +479,5 @@ export class Grid {
 
   deriveEdgesFromRegions() {
     // Deprecated for Puzzle Mode.
-    // Kept empty/minimal or just removed.
-    // If I leave it, I should make sure it's not called or doesn't do anything disruptive.
-    // The previous implementation overwrote activeEdges.
-    // I entered this method in the replacement range, so I will effectively remove the old logic.
-    // For now, I'll just leave it empty or remove it.
-    // The plan said "Remove deriveEdgesFromRegions call on load".
-    // I will remove the method entirely if I can cover the whole range.
   }
 }

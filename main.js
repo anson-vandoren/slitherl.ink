@@ -1,12 +1,35 @@
 import { Grid, EdgeState } from './grid.js';
 import { Renderer } from './renderer.js';
 import { InputHandler } from './input.js';
+class ProgressManager {
+    storageKey = 'slitherlink_progress';
+    getProgress(size, difficulty) {
+        const data = this.loadData();
+        return data[`${size}_${difficulty}`] || 0;
+    }
+    saveProgress(size, difficulty, levelIndex) {
+        const data = this.loadData();
+        // Only update if we progressed further
+        if ((data[`${size}_${difficulty}`] || 0) <= levelIndex) {
+            data[`${size}_${difficulty}`] = levelIndex + 1; // Store next level index
+            localStorage.setItem(this.storageKey, JSON.stringify(data));
+        }
+    }
+    loadData() {
+        const stored = localStorage.getItem(this.storageKey);
+        return stored ? JSON.parse(stored) : {};
+    }
+}
 class Game {
     canvas;
     state;
     grid;
     renderer;
     input;
+    progressManager;
+    currentSize = 'medium';
+    currentDifficulty = 'medium';
+    currentLevelIndex = 0;
     constructor() {
         let canvas = document.getElementsByTagName('canvas').namedItem('app');
         if (!canvas)
@@ -18,6 +41,7 @@ class Game {
         };
         this.grid = new Grid(this.state.radius);
         this.renderer = new Renderer(this.grid, this.state.camera);
+        this.progressManager = new ProgressManager();
         this.input = new InputHandler(this.canvas, this.state.camera, {
             onTap: (x, y) => {
                 const hit = this.renderer.getHit(this.canvas, x, y);
@@ -34,16 +58,66 @@ class Game {
                     const currentState = hex.activeEdges[edgeIndex] ?? EdgeState.UNKNOWN;
                     const newState = ((currentState + 1) % 3);
                     this.grid.setEdgeState(hex.q, hex.r, edgeIndex, newState);
+                    // Check win condition (simple check for now, can be improved)
+                    this.checkWin();
                 }
             },
         });
+        this.initSplash();
         window.addEventListener('resize', () => this.resize());
         this.resize();
     }
+    initSplash() {
+        const startBtn = document.getElementById('start-btn');
+        const sizeSelect = document.getElementById('size-select');
+        const diffSelect = document.getElementById('difficulty-select');
+        const splash = document.getElementById('splash');
+        const debugWinBtn = document.getElementById('debug-win-btn');
+        if (startBtn && sizeSelect && diffSelect && splash) {
+            startBtn.onclick = () => {
+                this.currentSize = sizeSelect.value;
+                this.currentDifficulty = diffSelect.value;
+                this.currentLevelIndex = this.progressManager.getProgress(this.currentSize, this.currentDifficulty);
+                console.log(`Starting game: ${this.currentSize} ${this.currentDifficulty} Level ${this.currentLevelIndex}`);
+                splash.classList.add('hidden');
+                this.loadNextLevel();
+            };
+        }
+        if (debugWinBtn) {
+            debugWinBtn.onclick = () => {
+                console.log('Simulating win...');
+                this.progressManager.saveProgress(this.currentSize, this.currentDifficulty, this.currentLevelIndex);
+                alert(`Level ${this.currentLevelIndex} Complete! Saved progress.`);
+                this.currentLevelIndex++;
+                this.loadNextLevel();
+            };
+        }
+    }
+    loadNextLevel() {
+        // TODO: Logic to fetch specific map based on size/difficulty/index
+        // For now, we just load 'map.bin' as a placeholder or we could fetch from a structured path
+        // const mapPath = `maps/${this.currentSize}/${this.currentDifficulty}/${this.currentLevelIndex}.bin`;
+        // FALLBACK for now since we don't have the directory structure yet
+        const mapPath = 'map.bin';
+        this.loadMap(mapPath);
+    }
+    checkWin() {
+        // Placeholder for win condition
+        // If win:
+        // this.progressManager.saveProgress(this.currentSize, this.currentDifficulty, this.currentLevelIndex);
+        // alert("You Win! Loading next level...");
+        // this.currentLevelIndex++;
+        // this.loadNextLevel();
+    }
     loadMap(mapFile) {
         fetch(mapFile)
-            .then((res) => res.arrayBuffer())
+            .then((res) => {
+            if (!res.ok)
+                throw new Error(`Map not found: ${mapFile}`);
+            return res.arrayBuffer();
+        })
             .then((buffer) => {
+            console.log('Loading map binary...');
             this.grid.loadBinaryMap(buffer);
             this.state.radius = this.grid.radius;
             this.renderer.render(this.canvas);
@@ -69,5 +143,5 @@ class Game {
     }
 }
 let game = new Game();
-game.loadMap('map.bin');
+// Game entries point is now initSplash which waits for user input
 game.loop();
