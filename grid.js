@@ -107,6 +107,9 @@ export class Grid {
         const existing = this.edgeStates.get(key) || EdgeState.UNKNOWN;
         if (existing === newState && recordMove)
             return;
+        // Check if we are loosening a firm constraint, which requires ensuring derived states are re-validated
+        const isFirm = (s) => s === EdgeState.ACTIVE || s === EdgeState.OFF;
+        const isLoosening = isFirm(existing) && !isFirm(newState);
         // If we're making a new move (not undoing/redoing), clear any future history
         if (recordMove) {
             if (this.historyIndex < this.history.length - 1) {
@@ -121,12 +124,124 @@ export class Grid {
             });
             this.historyIndex++;
         }
+        // 1. Identify affected Calculated edges if loosening
+        const edgesToReset = [];
+        if (isLoosening) {
+            this.findConnectedCalculatedEdges(q, r, edgeIndex, edgesToReset);
+        }
+        // 2. Update the primary edge
         this.edgeStates.set(key, newState);
-        const [v1, v2] = verticesForEdge(edgeIndex);
-        const hex = this.getHex(q, r);
-        if (hex) {
-            this.checkVertex(hex, v1);
-            this.checkVertex(hex, v2);
+        // 3. Reset affected calculated edges to UNKNOWN
+        for (const edge of edgesToReset) {
+            // Record these changes in history too if recording
+            const vKey = edge.key;
+            const vState = this.edgeStates.get(vKey) || EdgeState.UNKNOWN;
+            if (vState !== EdgeState.UNKNOWN) {
+                if (recordMove) {
+                    this.history.push({
+                        q: edge.q,
+                        r: edge.r,
+                        edgeIndex: edge.dir,
+                        oldState: vState,
+                        newState: EdgeState.UNKNOWN,
+                    });
+                    this.historyIndex++;
+                }
+                this.edgeStates.set(vKey, EdgeState.UNKNOWN);
+            }
+        }
+        // 4. Propagate updates (Check vertices)
+        // We check the original edge's vertices AND all reset edges' vertices.
+        const verticesToCheck = new Set();
+        const addVertices = (q, r, d) => {
+            const [v1, v2] = verticesForEdge(d);
+            verticesToCheck.add(`${q},${r},${v1}`);
+            verticesToCheck.add(`${q},${r},${v2}`);
+            // Note: Vertices are shared, but checkVertex uses (hex, corner).
+            // The neighboring hex sees the same vertex with a different index.
+            // checkVertex iterates around the vertex looking at edges.
+            // Does checkVertex handle the "other side" automatically?
+            // checkVertex(hex, v) computes logic based on edges around v.
+            // It sets edges.
+            // So checking from ONE side is sufficient if it covers all 3 edges?
+            // Yes, getVertexState gathers s1, s2, s3 (neighbor).
+            // So checking (q,r,v1) is enough to cover the vertex logic.
+        };
+        addVertices(q, r, edgeIndex);
+        for (const e of edgesToReset) {
+            addVertices(e.q, e.r, e.dir);
+        }
+        // Also add neighbors of the original edge?
+        // If I changed A, neighbors B and C need checking.
+        // addVertices adds the vertices of A.
+        // The checks at these vertices involves A, B, C. So B and C are checked.
+        // Correct.
+        // Run checks
+        for (const keyStr of verticesToCheck) {
+            const parts = keyStr.split(',');
+            if (parts.length === 3) {
+                const qs = parts[0];
+                const rs = parts[1];
+                const vs = parts[2];
+                if (qs !== undefined && rs !== undefined && vs !== undefined) {
+                    const hex = this.getHex(parseInt(qs), parseInt(rs));
+                    if (hex) {
+                        this.checkVertex(hex, parseInt(vs));
+                    }
+                }
+            }
+        }
+    }
+    findConnectedCalculatedEdges(startQ, startR, startDir, results) {
+        // DFS/BFS to find all reachable CALCULATED_OFF edges.
+        // We traverse across vertices.
+        const visited = new Set();
+        // Note: The start edge itself is changing to UNKNOWN (or similar).
+        // We want to find *neighbors* that are CALCULATED_OFF.
+        const queue = [];
+        // Gather initial neighbors (Calculated ones)
+        const addNeighbors = (q, r, d) => {
+            const activeHex = this.getHex(q, r);
+            if (!activeHex)
+                return;
+            const [v1, v2] = verticesForEdge(d);
+            const checkV = (v) => {
+                const ctx = this.getVertexState(activeHex, v);
+                // Check s1 (e1Index), s2 (e2Index), s3 (neighborContext)
+                // We want to add any that are CALCULATED_OFF and not visited.
+                const processEdge = (sq, sr, sdir, state) => {
+                    if (state === EdgeState.CALCULATED_OFF) {
+                        const skey = this.getCanonicalEdgeKey(sq, sr, sdir);
+                        if (!visited.has(skey)) {
+                            visited.add(skey);
+                            const item = { q: sq, r: sr, dir: sdir, key: skey };
+                            results.push(item);
+                            queue.push(item);
+                        }
+                    }
+                };
+                // s1 (e1) - activeHex
+                processEdge(activeHex.q, activeHex.r, ctx.e1Index, ctx.s1);
+                // s2 (e2) - activeHex
+                processEdge(activeHex.q, activeHex.r, ctx.e2Index, ctx.s2);
+                // s3 - neighbor
+                if (ctx.neighborContext) {
+                    processEdge(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, ctx.s3);
+                }
+            };
+            checkV(v1);
+            checkV(v2);
+        };
+        addNeighbors(startQ, startR, startDir);
+        // Process queue
+        let head = 0;
+        while (head < queue.length) {
+            const current = queue[head];
+            head++;
+            if (current) {
+                // Recursively add neighbors of this calculated edge
+                addNeighbors(current.q, current.r, current.dir);
+            }
         }
     }
     undo() {
@@ -148,20 +263,11 @@ export class Grid {
         }
     }
     loadHistory(history, index) {
-        // Replay history
         this.history = history;
-        this.historyIndex = -1; // Reset to start replaying
-        // We can either just set the state directly or replay.
-        // Replaying ensures consistency if we rely on side effects,
-        // but here we just want to restore the grid and the history pointer.
-        // However, since we want to be able to undo/redo from this point,
-        // we should validly populate the grid.
-        // Simplest way: clear grid edges (which are already cleared on load)
-        // and apply all moves up to index.
+        this.historyIndex = -1;
         for (let i = 0; i <= index; i++) {
             const move = this.history[i];
             if (move) {
-                // Apply move without recording
                 this.setEdgeState(move.q, move.r, move.edgeIndex, move.newState, false);
             }
             this.historyIndex = i;
@@ -209,148 +315,20 @@ export class Grid {
             return true;
         return false;
     }
-    isFirmlyForced(q, r, dir, visited = new Set()) {
-        const key = this.getCanonicalEdgeKey(q, r, dir);
-        if (visited.has(key))
-            return false; // Cycle detected, not firm
-        const state = this.getEdgeState(q, r, dir);
-        if (state === EdgeState.ACTIVE || state === EdgeState.OFF)
-            return true; // User/Permanent state is firm
-        if (state === EdgeState.UNKNOWN)
-            return false;
-        // It is CALCULATED_OFF. Check if grounded in firm constraints.
-        visited.add(key);
-        const result = this.checkEdgeFirmness(q, r, dir, visited);
-        visited.delete(key);
-        return result;
-    }
-    checkEdgeFirmness(q, r, dir, visited) {
-        const hex = this.getHex(q, r);
-        if (!hex)
-            return true; // Should not happen for valid map edges
-        const [v1, v2] = verticesForEdge(dir);
-        if (this.checkVertexFirmness(hex, v1, dir, visited))
-            return true;
-        if (this.checkVertexFirmness(hex, v2, dir, visited))
-            return true;
-        return false;
-    }
-    checkVertexFirmness(hex, vIndex, targetDir, visited) {
-        const ctx = this.getVertexState(hex, vIndex);
-        let other1State;
-        let other1FirmFn;
-        let other2State;
-        let other2FirmFn;
-        if (ctx.e1Index === targetDir) {
-            // Inputs are s2 (e2Index) and s3
-            other1State = ctx.s2;
-            other1FirmFn = () => this.isFirmlyForced(hex.q, hex.r, ctx.e2Index, visited);
-            other2State = ctx.s3;
-            other2FirmFn = () => {
-                if (!ctx.neighborContext)
-                    return true; // Boundary is firm
-                return this.isFirmlyForced(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, visited);
-            };
-        }
-        else if (ctx.e2Index === targetDir) {
-            // Inputs are s1 (e1Index) and s3
-            other1State = ctx.s1;
-            other1FirmFn = () => this.isFirmlyForced(hex.q, hex.r, ctx.e1Index, visited);
-            other2State = ctx.s3;
-            other2FirmFn = () => {
-                if (!ctx.neighborContext)
-                    return true; // Boundary is firm
-                return this.isFirmlyForced(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, visited);
-            };
-        }
-        else {
-            // Should not happen, targetDir must be E1 or E2 of the vertex
-            return false;
-        }
-        if (this.forcesOff(other1State, other2State)) {
-            // Check if forcing conditions are firm
-            if (other1FirmFn() && other2FirmFn())
-                return true;
-        }
-        return false;
-    }
     checkVertex(hex, cornerIndex) {
-        let ctx = this.getVertexState(hex, cornerIndex);
-        const isFirm = (state, q, r, dir, neighborCtx) => {
-            if (state === EdgeState.ACTIVE || state === EdgeState.OFF)
-                return true;
-            if (state === EdgeState.UNKNOWN)
-                return false;
-            // CALCULATED_OFF
-            if (neighborCtx === undefined && dir === undefined)
-                return true; // Boundary implicit
-            // For S3 boundary, neighborCtx is null? No, caller handles logic.
-            // Actually s3 logic: if !ctx.neighborContext then Boundary.
-            return this.isFirmlyForced(q, r, dir);
-        };
-        // Helper to check if inputs for a target edge are firm
-        const inputsAreFirm = (targetDir) => {
-            if (targetDir === ctx.e1Index) {
-                // Inputs s2, s3
-                if (!isFirm(ctx.s2, hex.q, hex.r, ctx.e2Index))
-                    return false;
-                if (!ctx.neighborContext)
-                    return true; // s3 is Boundary (Firm)
-                return isFirm(ctx.s3, ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex);
-            }
-            else if (targetDir === ctx.e2Index) {
-                // Inputs s1, s3
-                if (!isFirm(ctx.s1, hex.q, hex.r, ctx.e1Index))
-                    return false;
-                if (!ctx.neighborContext)
-                    return true; // s3 is Boundary (Firm)
-                return isFirm(ctx.s3, ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex);
-            }
-            else {
-                // target is S3 (neighbor edge)
-                // Inputs s1, s2
-                if (!isFirm(ctx.s1, hex.q, hex.r, ctx.e1Index))
-                    return false;
-                return isFirm(ctx.s2, hex.q, hex.r, ctx.e2Index);
-            }
-        };
+        const ctx = this.getVertexState(hex, cornerIndex);
         // E1 Logic
         if (ctx.s1 === EdgeState.UNKNOWN && ctx.forcesE1) {
-            if (inputsAreFirm(ctx.e1Index)) {
-                this.setEdgeState(hex.q, hex.r, ctx.e1Index, EdgeState.CALCULATED_OFF);
-                ctx = this.getVertexState(hex, cornerIndex);
-            }
-        }
-        else if (ctx.s1 === EdgeState.CALCULATED_OFF && !ctx.forcesE1) {
-            if (!this.isFirmlyForced(hex.q, hex.r, ctx.e1Index)) {
-                this.setEdgeState(hex.q, hex.r, ctx.e1Index, EdgeState.UNKNOWN);
-                ctx = this.getVertexState(hex, cornerIndex);
-            }
+            this.setEdgeState(hex.q, hex.r, ctx.e1Index, EdgeState.CALCULATED_OFF);
         }
         // E2 Logic
         if (ctx.s2 === EdgeState.UNKNOWN && ctx.forcesE2) {
-            if (inputsAreFirm(ctx.e2Index)) {
-                this.setEdgeState(hex.q, hex.r, ctx.e2Index, EdgeState.CALCULATED_OFF);
-                ctx = this.getVertexState(hex, cornerIndex);
-            }
-        }
-        else if (ctx.s2 === EdgeState.CALCULATED_OFF && !ctx.forcesE2) {
-            if (!this.isFirmlyForced(hex.q, hex.r, ctx.e2Index)) {
-                this.setEdgeState(hex.q, hex.r, ctx.e2Index, EdgeState.UNKNOWN);
-                ctx = this.getVertexState(hex, cornerIndex);
-            }
+            this.setEdgeState(hex.q, hex.r, ctx.e2Index, EdgeState.CALCULATED_OFF);
         }
         // S3 Logic
         if (ctx.neighborContext) {
             if (ctx.s3 === EdgeState.UNKNOWN && ctx.forcesS3) {
-                if (inputsAreFirm(ctx.neighborContext.edgeIndex)) {
-                    this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, EdgeState.CALCULATED_OFF);
-                }
-            }
-            else if (ctx.s3 === EdgeState.CALCULATED_OFF && !ctx.forcesS3) {
-                if (!this.isFirmlyForced(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex)) {
-                    this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, EdgeState.UNKNOWN);
-                }
+                this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, EdgeState.CALCULATED_OFF);
             }
         }
     }

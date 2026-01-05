@@ -184,8 +184,11 @@ class Game {
           this.currentDifficulty = state.difficulty;
           this.currentLevelIndex = state.levelIndex;
           this.hideSplash();
-          // Replace history state so we can go back
-          history.replaceState({ view: 'game' }, '');
+          // Build history stack so back button works:
+          // 1. Base is splash
+          history.replaceState({ view: 'splash' }, '');
+          // 2. Push game state on top
+          history.pushState({ view: 'game' }, '');
           this.loadNextLevel(true); // true = restoring
         }
       }
