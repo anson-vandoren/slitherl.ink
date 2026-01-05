@@ -189,14 +189,6 @@ export class Grid {
         else {
             s3 = EdgeState.CALCULATED_OFF;
         }
-        const forcesOff = (aVal, bVal) => {
-            if (aVal === EdgeState.ACTIVE && bVal === EdgeState.ACTIVE)
-                return true;
-            const isInactive = (v) => v === EdgeState.OFF || v === EdgeState.CALCULATED_OFF;
-            if (isInactive(aVal) && isInactive(bVal))
-                return true;
-            return false;
-        };
         return {
             s1,
             e1Index,
@@ -204,23 +196,162 @@ export class Grid {
             e2Index,
             s3,
             neighborContext,
-            forcesE1: forcesOff(s2, s3),
-            forcesE2: forcesOff(s1, s3),
-            forcesS3: forcesOff(s1, s2),
+            forcesE1: this.forcesOff(s2, s3),
+            forcesE2: this.forcesOff(s1, s3),
+            forcesS3: this.forcesOff(s1, s2),
         };
+    }
+    forcesOff(aVal, bVal) {
+        if (aVal === EdgeState.ACTIVE && bVal === EdgeState.ACTIVE)
+            return true;
+        const isInactive = (v) => v === EdgeState.OFF || v === EdgeState.CALCULATED_OFF;
+        if (isInactive(aVal) && isInactive(bVal))
+            return true;
+        return false;
+    }
+    isFirmlyForced(q, r, dir, visited = new Set()) {
+        const key = this.getCanonicalEdgeKey(q, r, dir);
+        if (visited.has(key))
+            return false; // Cycle detected, not firm
+        const state = this.getEdgeState(q, r, dir);
+        if (state === EdgeState.ACTIVE || state === EdgeState.OFF)
+            return true; // User/Permanent state is firm
+        if (state === EdgeState.UNKNOWN)
+            return false;
+        // It is CALCULATED_OFF. Check if grounded in firm constraints.
+        visited.add(key);
+        const result = this.checkEdgeFirmness(q, r, dir, visited);
+        visited.delete(key);
+        return result;
+    }
+    checkEdgeFirmness(q, r, dir, visited) {
+        const hex = this.getHex(q, r);
+        if (!hex)
+            return true; // Should not happen for valid map edges
+        const [v1, v2] = verticesForEdge(dir);
+        if (this.checkVertexFirmness(hex, v1, dir, visited))
+            return true;
+        if (this.checkVertexFirmness(hex, v2, dir, visited))
+            return true;
+        return false;
+    }
+    checkVertexFirmness(hex, vIndex, targetDir, visited) {
+        const ctx = this.getVertexState(hex, vIndex);
+        let other1State;
+        let other1FirmFn;
+        let other2State;
+        let other2FirmFn;
+        if (ctx.e1Index === targetDir) {
+            // Inputs are s2 (e2Index) and s3
+            other1State = ctx.s2;
+            other1FirmFn = () => this.isFirmlyForced(hex.q, hex.r, ctx.e2Index, visited);
+            other2State = ctx.s3;
+            other2FirmFn = () => {
+                if (!ctx.neighborContext)
+                    return true; // Boundary is firm
+                return this.isFirmlyForced(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, visited);
+            };
+        }
+        else if (ctx.e2Index === targetDir) {
+            // Inputs are s1 (e1Index) and s3
+            other1State = ctx.s1;
+            other1FirmFn = () => this.isFirmlyForced(hex.q, hex.r, ctx.e1Index, visited);
+            other2State = ctx.s3;
+            other2FirmFn = () => {
+                if (!ctx.neighborContext)
+                    return true; // Boundary is firm
+                return this.isFirmlyForced(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, visited);
+            };
+        }
+        else {
+            // Should not happen, targetDir must be E1 or E2 of the vertex
+            return false;
+        }
+        if (this.forcesOff(other1State, other2State)) {
+            // Check if forcing conditions are firm
+            if (other1FirmFn() && other2FirmFn())
+                return true;
+        }
+        return false;
     }
     checkVertex(hex, cornerIndex) {
         let ctx = this.getVertexState(hex, cornerIndex);
+        const isFirm = (state, q, r, dir, neighborCtx) => {
+            if (state === EdgeState.ACTIVE || state === EdgeState.OFF)
+                return true;
+            if (state === EdgeState.UNKNOWN)
+                return false;
+            // CALCULATED_OFF
+            if (neighborCtx === undefined && dir === undefined)
+                return true; // Boundary implicit
+            // For S3 boundary, neighborCtx is null? No, caller handles logic.
+            // Actually s3 logic: if !ctx.neighborContext then Boundary.
+            return this.isFirmlyForced(q, r, dir);
+        };
+        // Helper to check if inputs for a target edge are firm
+        const inputsAreFirm = (targetDir) => {
+            if (targetDir === ctx.e1Index) {
+                // Inputs s2, s3
+                if (!isFirm(ctx.s2, hex.q, hex.r, ctx.e2Index))
+                    return false;
+                if (!ctx.neighborContext)
+                    return true; // s3 is Boundary (Firm)
+                return isFirm(ctx.s3, ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex);
+            }
+            else if (targetDir === ctx.e2Index) {
+                // Inputs s1, s3
+                if (!isFirm(ctx.s1, hex.q, hex.r, ctx.e1Index))
+                    return false;
+                if (!ctx.neighborContext)
+                    return true; // s3 is Boundary (Firm)
+                return isFirm(ctx.s3, ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex);
+            }
+            else {
+                // target is S3 (neighbor edge)
+                // Inputs s1, s2
+                if (!isFirm(ctx.s1, hex.q, hex.r, ctx.e1Index))
+                    return false;
+                return isFirm(ctx.s2, hex.q, hex.r, ctx.e2Index);
+            }
+        };
+        // E1 Logic
         if (ctx.s1 === EdgeState.UNKNOWN && ctx.forcesE1) {
-            this.setEdgeState(hex.q, hex.r, ctx.e1Index, EdgeState.CALCULATED_OFF);
-            ctx = this.getVertexState(hex, cornerIndex);
+            if (inputsAreFirm(ctx.e1Index)) {
+                this.setEdgeState(hex.q, hex.r, ctx.e1Index, EdgeState.CALCULATED_OFF);
+                ctx = this.getVertexState(hex, cornerIndex);
+            }
         }
+        else if (ctx.s1 === EdgeState.CALCULATED_OFF && !ctx.forcesE1) {
+            if (!this.isFirmlyForced(hex.q, hex.r, ctx.e1Index)) {
+                this.setEdgeState(hex.q, hex.r, ctx.e1Index, EdgeState.UNKNOWN);
+                ctx = this.getVertexState(hex, cornerIndex);
+            }
+        }
+        // E2 Logic
         if (ctx.s2 === EdgeState.UNKNOWN && ctx.forcesE2) {
-            this.setEdgeState(hex.q, hex.r, ctx.e2Index, EdgeState.CALCULATED_OFF);
-            ctx = this.getVertexState(hex, cornerIndex);
+            if (inputsAreFirm(ctx.e2Index)) {
+                this.setEdgeState(hex.q, hex.r, ctx.e2Index, EdgeState.CALCULATED_OFF);
+                ctx = this.getVertexState(hex, cornerIndex);
+            }
         }
-        if (ctx.s3 === EdgeState.UNKNOWN && ctx.forcesS3 && ctx.neighborContext) {
-            this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, EdgeState.CALCULATED_OFF);
+        else if (ctx.s2 === EdgeState.CALCULATED_OFF && !ctx.forcesE2) {
+            if (!this.isFirmlyForced(hex.q, hex.r, ctx.e2Index)) {
+                this.setEdgeState(hex.q, hex.r, ctx.e2Index, EdgeState.UNKNOWN);
+                ctx = this.getVertexState(hex, cornerIndex);
+            }
+        }
+        // S3 Logic
+        if (ctx.neighborContext) {
+            if (ctx.s3 === EdgeState.UNKNOWN && ctx.forcesS3) {
+                if (inputsAreFirm(ctx.neighborContext.edgeIndex)) {
+                    this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, EdgeState.CALCULATED_OFF);
+                }
+            }
+            else if (ctx.s3 === EdgeState.CALCULATED_OFF && !ctx.forcesS3) {
+                if (!this.isFirmlyForced(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex)) {
+                    this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, EdgeState.UNKNOWN);
+                }
+            }
         }
     }
     loadBinaryMap(buffer) {
