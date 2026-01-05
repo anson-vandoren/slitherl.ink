@@ -7,13 +7,42 @@ export interface Hex {
   showNumber?: boolean;
 }
 
-enum HexDirection {
+enum EdgeDirection {
   SE = 0, // dq=1, dr=0
   S = 1, // dq=0, dr=1
   SW = 2, // dq=-1, dr=1
   NW = 3, // dq=-1, dr=0
   N = 4, // dq=0, dr=-1
   NE = 5, // dq=1, dr=-1
+}
+
+enum VertexDirection {
+  E = 0,
+  SE = 1,
+  SW = 2,
+  W = 3,
+  NW = 4,
+  NE = 5,
+}
+
+function verticesForEdge(edge: EdgeDirection): [VertexDirection, VertexDirection] {
+  // TODO: this is basically [VertexDirection.edge, VertexDirection.((edge + 1) % 6)];
+  // But that's ugly to express in TypeScript
+
+  switch (edge) {
+    case EdgeDirection.SE:
+      return [VertexDirection.E, VertexDirection.SE];
+    case EdgeDirection.S:
+      return [VertexDirection.SE, VertexDirection.SW];
+    case EdgeDirection.SW:
+      return [VertexDirection.SW, VertexDirection.W];
+    case EdgeDirection.NW:
+      return [VertexDirection.W, VertexDirection.NW];
+    case EdgeDirection.N:
+      return [VertexDirection.NW, VertexDirection.NE];
+    case EdgeDirection.NE:
+      return [VertexDirection.NE, VertexDirection.E];
+  }
 }
 
 export class Grid {
@@ -56,7 +85,7 @@ export class Grid {
   /**
    * Get neighbor hex by q and r coordinates and direction
    */
-  getNeighbor(q: number, r: number, direction: HexDirection): Hex | undefined {
+  getNeighbor(q: number, r: number, direction: EdgeDirection): Hex | undefined {
     const directions = [
       { dq: 1, dr: 0 }, // 0
       { dq: 0, dr: 1 }, // 1
@@ -74,7 +103,7 @@ export class Grid {
     return this.hexagons.values();
   }
 
-  setEdgeState(q: number, r: number, edgeIndex: HexDirection, newState: number) {
+  setEdgeState(q: number, r: number, edgeIndex: EdgeDirection, newState: number) {
     const hex = this.getHex(q, r);
     if (!hex) return;
 
@@ -91,19 +120,28 @@ export class Grid {
 
     // Check vertices at both ends of this edge
     // Edge i connects Corner i and Corner i+1 (mod 6)
-    this.checkVertex(hex, edgeIndex);
-    this.checkVertex(hex, (edgeIndex + 1) % 6);
+    let [v1, v2] = verticesForEdge(edgeIndex);
+    this.checkVertex(hex, v1);
+    this.checkVertex(hex, v2);
   }
 
-  checkVertex(hex: Hex, cornerIndex: number) {
+  checkVertex(hex: Hex, cornerIndex: VertexDirection) {
     // Identify the three edges meeting at this vertex (Corner i)
-    // 1. Edge (i-1) of this hex (previous edge)
+    // 1. Edge (i-1) of this hex (previous edge if going clockwise around the hex)
     const e1Index = (cornerIndex + 5) % 6;
-    const s1 = hex.activeEdges[e1Index] ?? 0;
+    const s1 = hex.activeEdges[e1Index];
+    if (s1 === undefined) {
+      console.error('Invalid edge state');
+      return;
+    }
 
     // 2. Edge i of this hex (current edge/next edge from corner)
-    const e2Index = cornerIndex;
-    const s2 = hex.activeEdges[e2Index] ?? 0;
+    const e2Index = cornerIndex << 0;
+    const s2 = hex.activeEdges[e2Index];
+    if (s2 === undefined) {
+      console.error('Invalid edge state');
+      return;
+    }
 
     // 3. The edge connecting the two neighbors
     // Neighbors are in direction of e1 and e2
@@ -121,7 +159,14 @@ export class Grid {
     // Formula: (cornerIndex + 4) % 6
     const dirN2toN1 = (cornerIndex + 4) % 6;
 
-    if (n1) {
+    /*if (n1 && n2) {
+      // If both neighbors exist, s3 is the edge of N1 towards N2
+      s3 = n1.activeEdges[dirN1toN2] ?? 0;
+      setS3 = (newState: number) => {
+        this.setEdgeState(n1.q, n1.r, dirN1toN2, newState);
+        this.setEdgeState(n2.q, n2.r, dirN2toN1, newState);
+      };
+    } else*/ if (n1) {
       // If N1 exists, s3 is the edge of N1 towards N2
       s3 = n1.activeEdges[dirN1toN2] ?? 0;
       setS3 = (newState: number) => {
