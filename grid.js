@@ -105,92 +105,217 @@ export class Grid {
         this.checkVertex(hex, v1);
         this.checkVertex(hex, v2);
     }
-    checkVertex(hex, cornerIndex) {
-        // Identify the three edges meeting at this vertex (Corner i)
-        // 1. Edge (i-1) of this hex (previous edge if going clockwise around the hex)
-        const e1Index = (cornerIndex + 5) % 6;
-        const s1 = hex.activeEdges[e1Index];
-        if (s1 === undefined) {
-            console.error('Invalid edge state');
-            return;
-        }
-        // 2. Edge i of this hex (current edge/next edge from corner)
-        const e2Index = cornerIndex << 0;
+    /**
+     * Returns the state of edges around a vertex, and whether this vertex forces any edge off.
+     */
+    /**
+     * Returns the state of edges around a vertex, and whether this vertex forces any edge off.
+     */
+    /**
+     * Checks if a Calculated Off (3) edge is grounded (connected to a 2 or Boundary).
+     * Used to prevent cycles of 3s.
+     */
+    isGrounded(hex, edgeIndex, visited = new Set()) {
+        const val = hex.activeEdges[edgeIndex];
+        if (val === 2)
+            return true; // Intentional Off is ground
+        if (val !== 3)
+            return false; // 0 or 1 is not Off
+        // Identify edge canonically
+        // Use smaller coordinate hex to identify edge?
+        // Or just store "q,r,edgeIndex"
+        const edgeId = `${hex.q},${hex.r},${edgeIndex}`;
+        if (visited.has(edgeId))
+            return false; // Cycle detected
+        visited.add(edgeId);
+        // Check both vertices of this edge.
+        // If EITHER vertex forces this edge to be off (with grounded inputs), then this edge is grounded.
+        const [v1, v2] = verticesForEdge(edgeIndex);
+        const checkVertexForce = (corner) => {
+            // Logic similar to getVertexState but we only care about INPUTS to this edge.
+            // This edge is E_target.
+            // At this corner, we have 2 other edges: E_other and E_neighbor.
+            // We need forcesOff(E_other, E_neighbor).
+            // AND those inputs must be grounded.
+            // 1. Identify E_other and E_neighbor
+            // E_target is either e1Index or e2Index relative to corner.
+            const e1Index = ((corner + 5) % 6);
+            const e2Index = corner;
+            let otherVal, otherIdx;
+            let neighborVal, neighborIdx = null;
+            let neighborHex = null;
+            // Neighbor stuff
+            const dirN1toN2 = ((corner + 1) % 6);
+            const dirN2toN1 = ((corner + 4) % 6);
+            const n1 = this.getNeighbor(hex.q, hex.r, e1Index);
+            const n2 = this.getNeighbor(hex.q, hex.r, e2Index);
+            let s3 = -1;
+            if (n1) {
+                s3 = n1.activeEdges[dirN1toN2] ?? 0;
+                neighborVal = s3;
+                neighborHex = n1;
+                neighborIdx = dirN1toN2;
+            }
+            else if (n2) {
+                s3 = n2.activeEdges[dirN2toN1] ?? 0;
+                neighborVal = s3;
+                neighborHex = n2;
+                neighborIdx = dirN2toN1;
+            }
+            // Determine which is active edge and which is other
+            if (e1Index === edgeIndex) {
+                // Active is s1. Other is s2.
+                otherVal = hex.activeEdges[e2Index];
+                otherIdx = e2Index;
+            }
+            else {
+                // Active is s2. Other is s1.
+                otherVal = hex.activeEdges[e1Index];
+                otherIdx = e1Index;
+            }
+            let effS3 = s3 === -1 ? 3 : s3;
+            // Logic forcesOff(other, neighbor)
+            // Check if valid "Off" force exists
+            const otherActive = otherVal === 1;
+            const neighborActive = effS3 === 1;
+            if (otherActive && neighborActive)
+                return true; // 1 and 1 is a solid ground (Active constraints)
+            // Inactive case
+            const otherInactive = otherVal === 2 || otherVal === 3;
+            const neighborInactive = effS3 === 2 || effS3 === 3;
+            if (otherInactive && neighborInactive) {
+                // Recursively check grounding
+                // For 'other' (local edge):
+                const otherGrounded = this.isGrounded(hex, otherIdx, visited);
+                // For 'neighbor' (s3):
+                let neighborGrounded = false;
+                if (effS3 === 3) {
+                    if (s3 === -1)
+                        neighborGrounded = true; // Boundary is grounded
+                    else if (neighborHex && neighborIdx !== null) {
+                        neighborGrounded = this.isGrounded(neighborHex, neighborIdx, visited);
+                    }
+                }
+                else if (effS3 === 2) {
+                    neighborGrounded = true;
+                }
+                return otherGrounded && neighborGrounded;
+            }
+            return false;
+        };
+        return checkVertexForce(v1) || checkVertexForce(v2);
+    }
+    /**
+     * Returns the state of edges around a vertex, and whether this vertex forces any edge off.
+     */
+    getVertexState(hex, cornerIndex) {
+        // 1. Edge (i-1) of this hex
+        const e1Index = ((cornerIndex + 5) % 6);
+        const s1 = hex.activeEdges[e1Index]; // Assumes valid activeEdges
+        // 2. Edge i of this hex
+        const e2Index = cornerIndex;
         const s2 = hex.activeEdges[e2Index];
-        if (s2 === undefined) {
-            console.error('Invalid edge state');
-            return;
-        }
         // 3. The edge connecting the two neighbors
         // Neighbors are in direction of e1 and e2
         const n1 = this.getNeighbor(hex.q, hex.r, e1Index);
         const n2 = this.getNeighbor(hex.q, hex.r, e2Index);
-        let s3 = -1; // -1 means invalid/boundary
-        let setS3 = null; // function to set s3 if needed
-        // Determine direction from N1 to N2 (relative to N1)
-        // Formula: (cornerIndex + 1) % 6
-        const dirN1toN2 = (cornerIndex + 1) % 6;
-        // Determine direction from N2 to N1 (relative to N2)
-        // Formula: (cornerIndex + 4) % 6
-        const dirN2toN1 = (cornerIndex + 4) % 6;
-        /*if (n1 && n2) {
-          // If both neighbors exist, s3 is the edge of N1 towards N2
-          s3 = n1.activeEdges[dirN1toN2] ?? 0;
-          setS3 = (newState: number) => {
-            this.setEdgeState(n1.q, n1.r, dirN1toN2, newState);
-            this.setEdgeState(n2.q, n2.r, dirN2toN1, newState);
-          };
-        } else*/ if (n1) {
-            // If N1 exists, s3 is the edge of N1 towards N2
+        const dirN1toN2 = ((cornerIndex + 1) % 6);
+        const dirN2toN1 = ((cornerIndex + 4) % 6);
+        let s3 = -1;
+        let neighborContext = null;
+        if (n1) {
             s3 = n1.activeEdges[dirN1toN2] ?? 0;
-            setS3 = (newState) => {
-                this.setEdgeState(n1.q, n1.r, dirN1toN2, newState);
-            };
+            neighborContext = { hex: n1, edgeIndex: dirN1toN2 };
         }
         else if (n2) {
-            // If N1 is missing but N2 exists, s3 is the edge of N2 towards N1
             s3 = n2.activeEdges[dirN2toN1] ?? 0;
-            setS3 = (newState) => {
-                this.setEdgeState(n2.q, n2.r, dirN2toN1, newState);
+            neighborContext = { hex: n2, edgeIndex: dirN2toN1 };
+        }
+        let effectiveS3 = s3 === -1 ? 3 : s3;
+        // ForcesOff now checks grounding for 3s
+        const forcesOff = (aVal, aHex, aIdx, bVal, bHex, bIdx) => {
+            const aActive = aVal === 1;
+            const bActive = bVal === 1;
+            if (aActive && bActive)
+                return true;
+            const isInactive = (val, h, idx) => {
+                if (val === 2)
+                    return true;
+                if (val === 3) {
+                    if (h && idx !== null)
+                        return this.isGrounded(h, idx);
+                    return true; // Boundary or unknown (assume grounded if no context, i.e. boundary)
+                }
+                return false;
             };
-        }
-        // If neither exists, s3 remains -1, effectively treated as "Calculated Off" below.
-        // Logic:
-        // If exactly 2 edges are Active (1) -> 3rd (if Neutral 0) becomes Calculated Off (3)
-        // If exactly 2 edges are Inactive (2 or 3) -> 3rd (if Neutral 0) becomes Calculated Off (3)
-        // Treat boundary edges (phantom edges) as 'Calculated Off' (3)
-        let effectiveS3 = s3;
-        if (effectiveS3 === -1) {
-            effectiveS3 = 3;
-        }
-        const forcesOff = (a, b) => {
-            const aActive = a === 1;
-            const bActive = b === 1;
-            const aInactive = a === 2 || a === 3;
-            const bInactive = b === 2 || b === 3;
-            return (aActive && bActive) || (aInactive && bInactive);
+            const aInactive = isInactive(aVal, aHex, aIdx);
+            const bInactive = isInactive(bVal, bHex, bIdx);
+            return aInactive && bInactive;
         };
-        // Check s1
-        if (s1 === 0 && forcesOff(s2, effectiveS3)) {
-            this.setEdgeState(hex.q, hex.r, e1Index, 3);
+        return {
+            s1,
+            e1Index,
+            forcesE1: forcesOff(s2, hex, e2Index, effectiveS3, neighborContext?.hex ?? null, neighborContext?.edgeIndex ?? null),
+            s2,
+            e2Index,
+            forcesE2: forcesOff(s1, hex, e1Index, effectiveS3, neighborContext?.hex ?? null, neighborContext?.edgeIndex ?? null),
+            s3,
+            neighborContext,
+            forcesS3: forcesOff(s1, hex, e1Index, s2, hex, e2Index),
+        };
+    }
+    checkVertex(hex, cornerIndex) {
+        let ctx = this.getVertexState(hex, cornerIndex);
+        const otherEndForcesOff = (h, edgeIdx, currentCorner) => {
+            const [v1, v2] = verticesForEdge(edgeIdx);
+            const otherCorner = v1 === currentCorner ? v2 : v1;
+            const otherCtx = this.getVertexState(h, otherCorner);
+            if (otherCtx.e1Index === edgeIdx)
+                return otherCtx.forcesE1;
+            if (otherCtx.e2Index === edgeIdx)
+                return otherCtx.forcesE2;
+            return false;
+        };
+        // Check s1 (e1Index)
+        if (ctx.s1 === 0 && ctx.forcesE1) {
+            this.setEdgeState(hex.q, hex.r, ctx.e1Index, 3);
+            ctx = this.getVertexState(hex, cornerIndex);
         }
-        else if (s1 === 3 && !forcesOff(s2, effectiveS3)) {
-            this.setEdgeState(hex.q, hex.r, e1Index, 0);
+        else if (ctx.s1 === 3 && !ctx.forcesE1) {
+            if (!otherEndForcesOff(hex, ctx.e1Index, cornerIndex)) {
+                this.setEdgeState(hex.q, hex.r, ctx.e1Index, 0);
+                ctx = this.getVertexState(hex, cornerIndex);
+            }
         }
-        // Check s2
-        if (s2 === 0 && forcesOff(s1, effectiveS3)) {
-            this.setEdgeState(hex.q, hex.r, e2Index, 3);
+        // Check s2 (e2Index)
+        if (ctx.s2 === 0 && ctx.forcesE2) {
+            this.setEdgeState(hex.q, hex.r, ctx.e2Index, 3);
+            ctx = this.getVertexState(hex, cornerIndex);
         }
-        else if (s2 === 3 && !forcesOff(s1, effectiveS3)) {
-            this.setEdgeState(hex.q, hex.r, e2Index, 0);
+        else if (ctx.s2 === 3 && !ctx.forcesE2) {
+            if (!otherEndForcesOff(hex, ctx.e2Index, cornerIndex)) {
+                this.setEdgeState(hex.q, hex.r, ctx.e2Index, 0);
+                ctx = this.getVertexState(hex, cornerIndex);
+            }
         }
         // Check s3
-        if (setS3) {
-            if (s3 === 0 && forcesOff(s1, s2)) {
-                setS3(3);
+        if (ctx.neighborContext) {
+            if (ctx.s3 === 0 && ctx.forcesS3) {
+                this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, 3);
+                ctx = this.getVertexState(hex, cornerIndex);
             }
-            else if (s3 === 3 && !forcesOff(s1, s2)) {
-                setS3(0);
+            else if (ctx.s3 === 3 && !ctx.forcesS3) {
+                const [v1, v2] = verticesForEdge(ctx.neighborContext.edgeIndex);
+                const startForcing = this.getVertexState(ctx.neighborContext.hex, v1);
+                const endForcing = this.getVertexState(ctx.neighborContext.hex, v2);
+                const v1Forces = (startForcing.e1Index === ctx.neighborContext.edgeIndex && startForcing.forcesE1) ||
+                    (startForcing.e2Index === ctx.neighborContext.edgeIndex && startForcing.forcesE2);
+                const v2Forces = (endForcing.e1Index === ctx.neighborContext.edgeIndex && endForcing.forcesE1) ||
+                    (endForcing.e2Index === ctx.neighborContext.edgeIndex && endForcing.forcesE2);
+                if (!v1Forces && !v2Forces) {
+                    this.setEdgeState(ctx.neighborContext.hex.q, ctx.neighborContext.hex.r, ctx.neighborContext.edgeIndex, 0);
+                    ctx = this.getVertexState(hex, cornerIndex);
+                }
             }
         }
     }
