@@ -1,6 +1,8 @@
 interface Callbacks {
   onTap?: (x: number, y: number) => void;
   onViewChange?: () => void;
+  onDragEnd?: () => void;
+  onZoom?: () => void;
 }
 
 export class InputHandler {
@@ -214,6 +216,10 @@ export class InputHandler {
       this.isDragging = true;
       this.lastPos = { x: this.evCache[0]!.clientX, y: this.evCache[0]!.clientY };
     }
+
+    if (this.callbacks.onDragEnd) {
+      this.callbacks.onDragEnd();
+    }
   }
 
   onWheel(e: WheelEvent) {
@@ -249,6 +255,9 @@ export class InputHandler {
 
     if (this.callbacks.onViewChange) {
       this.callbacks.onViewChange();
+    }
+    if (this.callbacks.onZoom) {
+      this.callbacks.onZoom();
     }
   }
 }

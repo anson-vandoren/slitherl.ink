@@ -4,6 +4,7 @@ import { InputHandler } from './input.js';
 class ProgressManager {
     progressKey = 'slitherlink_progress';
     stateKeyPrefix = 'slitherlink_state_';
+    viewKeyPrefix = 'slitherlink_view_';
     getProgress(size, difficulty) {
         const data = this.loadProgress();
         return data[`${size}_${difficulty}`] || 0;
@@ -18,27 +19,46 @@ class ProgressManager {
         // Clear active state for this size since we won
         localStorage.removeItem(this.activeStateKey(size));
     }
-    saveActiveState(size, difficulty, levelIndex, history, historyIndex, camera) {
+    saveGameHistory(size, difficulty, levelIndex, history, historyIndex) {
         const state = {
             size,
             difficulty,
             levelIndex,
             history,
             historyIndex,
-            camera,
             timestamp: Date.now(),
         };
         localStorage.setItem(this.activeStateKey(size), JSON.stringify(state));
     }
+    saveViewState(size, camera) {
+        const state = {
+            camera,
+            timestamp: Date.now(),
+        };
+        localStorage.setItem(this.activeViewKey(size), JSON.stringify(state));
+    }
     loadActiveState(size) {
-        const stored = localStorage.getItem(this.activeStateKey(size));
-        return stored ? JSON.parse(stored) : null;
+        const storedState = localStorage.getItem(this.activeStateKey(size));
+        const storedView = localStorage.getItem(this.activeViewKey(size));
+        if (!storedState)
+            return null;
+        const state = JSON.parse(storedState);
+        if (storedView) {
+            const view = JSON.parse(storedView);
+            if (view.camera) {
+                state.camera = view.camera;
+            }
+        }
+        return state;
     }
     hasActiveState(size) {
         return !!localStorage.getItem(this.activeStateKey(size));
     }
     activeStateKey(size) {
         return `${this.stateKeyPrefix}${size}`;
+    }
+    activeViewKey(size) {
+        return `${this.viewKeyPrefix}${size}`;
     }
     loadProgress() {
         const stored = localStorage.getItem(this.progressKey);
@@ -81,13 +101,20 @@ class Game {
                     const currentState = this.grid.getEdgeState(hex.q, hex.r, edgeIndex);
                     const newState = ((currentState + 1) % 3);
                     this.grid.setEdgeState(hex.q, hex.r, edgeIndex, newState);
-                    this.saveState();
+                    this.saveGameHistory();
                     // Check win condition (simple check for now, can be improved)
                     this.checkWin();
                 }
             },
             onViewChange: () => {
-                this.debouncedSave();
+                // View change happens on every frame of drag/zoom.
+                // We might not need to save here anymore if we use onDragEnd / onZoom
+            },
+            onDragEnd: () => {
+                this.saveViewState();
+            },
+            onZoom: () => {
+                this.debouncedSaveViewState();
             },
         });
         this.initSplash();
@@ -134,16 +161,19 @@ class Game {
             }
         }
     }
-    saveState() {
-        this.progressManager.saveActiveState(this.currentSize, this.currentDifficulty, this.currentLevelIndex, this.grid.history, this.grid.historyIndex, this.camera);
+    saveGameHistory() {
+        this.progressManager.saveGameHistory(this.currentSize, this.currentDifficulty, this.currentLevelIndex, this.grid.history, this.grid.historyIndex);
         // Update UI buttons state if needed
     }
-    debouncedSave() {
+    saveViewState() {
+        this.progressManager.saveViewState(this.currentSize, this.camera);
+    }
+    debouncedSaveViewState() {
         if (this.saveTimeout) {
             clearTimeout(this.saveTimeout);
         }
         this.saveTimeout = window.setTimeout(() => {
-            this.saveState();
+            this.saveViewState();
             this.saveTimeout = null;
         }, 200);
     }
@@ -181,14 +211,14 @@ class Game {
                 undoBtn.onclick = () => {
                     this.grid.undo();
                     this.renderer.render(this.canvas);
-                    this.saveState();
+                    this.saveGameHistory();
                 };
             }
             if (redoBtn) {
                 redoBtn.onclick = () => {
                     this.grid.redo();
                     this.renderer.render(this.canvas);
-                    this.saveState();
+                    this.saveGameHistory();
                 };
             }
             startBtn.onclick = () => {
@@ -258,7 +288,8 @@ class Game {
             }
             else {
                 // New game, save initial state
-                this.saveState();
+                this.saveGameHistory();
+                this.saveViewState();
             }
             this.renderer.render(this.canvas);
             // Update constraints

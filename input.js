@@ -150,6 +150,9 @@ export class InputHandler {
             this.isDragging = true;
             this.lastPos = { x: this.evCache[0].clientX, y: this.evCache[0].clientY };
         }
+        if (this.callbacks.onDragEnd) {
+            this.callbacks.onDragEnd();
+        }
     }
     onWheel(e) {
         e.preventDefault();
@@ -176,6 +179,9 @@ export class InputHandler {
         this.clampCamera();
         if (this.callbacks.onViewChange) {
             this.callbacks.onViewChange();
+        }
+        if (this.callbacks.onZoom) {
+            this.callbacks.onZoom();
         }
     }
 }
