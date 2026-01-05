@@ -180,25 +180,16 @@ export class Renderer {
                 ctx.lineJoin = 'miter';
                 ctx.stroke();
                 if (state === 2) {
-                    // Check visibility condition for X
-                    // Condition: If hex.active > 0 OR (neighbor && neighbor.active > 0), SKIP X
-                    let hideX = false;
-                    if (hex.active > 0)
-                        hideX = true;
-                    if (neighbor && neighbor.active > 0)
-                        hideX = true;
-                    if (!hideX) {
-                        const midX = (p1.x + p2.x) / 2;
-                        const midY = (p1.y + p2.y) / 2;
-                        const s = 4;
-                        ctx.beginPath();
-                        ctx.moveTo(midX - s, midY - s);
-                        ctx.lineTo(midX + s, midY + s);
-                        ctx.moveTo(midX + s, midY - s);
-                        ctx.lineTo(midX - s, midY + s);
-                        ctx.setLineDash([]);
-                        ctx.stroke();
-                    }
+                    const midX = (p1.x + p2.x) / 2;
+                    const midY = (p1.y + p2.y) / 2;
+                    const s = 4;
+                    ctx.beginPath();
+                    ctx.moveTo(midX - s, midY - s);
+                    ctx.lineTo(midX + s, midY + s);
+                    ctx.moveTo(midX + s, midY - s);
+                    ctx.lineTo(midX - s, midY + s);
+                    ctx.setLineDash([]);
+                    ctx.stroke();
                 }
             }
         }
