@@ -41,11 +41,15 @@ export class Grid {
     hexagons;
     edgeStates;
     solutionEdges;
+    history;
+    historyIndex; // Points to the last applied move. -1 if no moves.
     constructor() {
         this.radius = -1;
         this.hexagons = new Map();
         this.edgeStates = new Map();
         this.solutionEdges = new Set();
+        this.history = [];
+        this.historyIndex = -1;
     }
     generateGrid() {
         for (let q = -this.radius; q <= this.radius; q++) {
@@ -98,17 +102,69 @@ export class Grid {
         const key = this.getCanonicalEdgeKey(q, r, dir);
         return this.edgeStates.get(key) || EdgeState.UNKNOWN;
     }
-    setEdgeState(q, r, edgeIndex, newState) {
+    setEdgeState(q, r, edgeIndex, newState, recordMove = true) {
         const key = this.getCanonicalEdgeKey(q, r, edgeIndex);
         const existing = this.edgeStates.get(key) || EdgeState.UNKNOWN;
-        if (existing === newState)
+        if (existing === newState && recordMove)
             return;
+        // If we're making a new move (not undoing/redoing), clear any future history
+        if (recordMove) {
+            if (this.historyIndex < this.history.length - 1) {
+                this.history = this.history.slice(0, this.historyIndex + 1);
+            }
+            this.history.push({
+                q,
+                r,
+                edgeIndex,
+                oldState: existing,
+                newState,
+            });
+            this.historyIndex++;
+        }
         this.edgeStates.set(key, newState);
         const [v1, v2] = verticesForEdge(edgeIndex);
         const hex = this.getHex(q, r);
         if (hex) {
             this.checkVertex(hex, v1);
             this.checkVertex(hex, v2);
+        }
+    }
+    undo() {
+        if (this.historyIndex < 0)
+            return;
+        const move = this.history[this.historyIndex];
+        if (move) {
+            this.setEdgeState(move.q, move.r, move.edgeIndex, move.oldState, false);
+            this.historyIndex--;
+        }
+    }
+    redo() {
+        if (this.historyIndex >= this.history.length - 1)
+            return;
+        this.historyIndex++;
+        const move = this.history[this.historyIndex];
+        if (move) {
+            this.setEdgeState(move.q, move.r, move.edgeIndex, move.newState, false);
+        }
+    }
+    loadHistory(history, index) {
+        // Replay history
+        this.history = history;
+        this.historyIndex = -1; // Reset to start replaying
+        // We can either just set the state directly or replay.
+        // Replaying ensures consistency if we rely on side effects,
+        // but here we just want to restore the grid and the history pointer.
+        // However, since we want to be able to undo/redo from this point,
+        // we should validly populate the grid.
+        // Simplest way: clear grid edges (which are already cleared on load)
+        // and apply all moves up to index.
+        for (let i = 0; i <= index; i++) {
+            const move = this.history[i];
+            if (move) {
+                // Apply move without recording
+                this.setEdgeState(move.q, move.r, move.edgeIndex, move.newState, false);
+            }
+            this.historyIndex = i;
         }
     }
     getVertexState(hex, cornerIndex) {
@@ -171,6 +227,8 @@ export class Grid {
         this.hexagons.clear();
         this.edgeStates.clear();
         this.solutionEdges.clear();
+        this.history = [];
+        this.historyIndex = -1;
         const view = new DataView(buffer);
         this.radius = view.getUint8(0);
         let byteIndex = 1;

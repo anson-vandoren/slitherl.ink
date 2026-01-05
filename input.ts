@@ -1,5 +1,6 @@
 interface Callbacks {
   onTap?: (x: number, y: number) => void;
+  onViewChange?: () => void;
 }
 
 export class InputHandler {
@@ -175,6 +176,10 @@ export class InputHandler {
       this.clampCamera();
 
       this.lastPos = { x: e.clientX, y: e.clientY };
+
+      if (this.callbacks.onViewChange) {
+        this.callbacks.onViewChange();
+      }
     }
   }
 
@@ -241,5 +246,9 @@ export class InputHandler {
     this.camera.y = (centerY - h / 2) / this.camera.zoom - wy;
 
     this.clampCamera();
+
+    if (this.callbacks.onViewChange) {
+      this.callbacks.onViewChange();
+    }
   }
 }

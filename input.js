@@ -118,6 +118,9 @@ export class InputHandler {
             this.camera.y += dy / this.camera.zoom;
             this.clampCamera();
             this.lastPos = { x: e.clientX, y: e.clientY };
+            if (this.callbacks.onViewChange) {
+                this.callbacks.onViewChange();
+            }
         }
     }
     onPointerUp(e) {
@@ -171,5 +174,8 @@ export class InputHandler {
         this.camera.x = (centerX - w / 2) / this.camera.zoom - wx;
         this.camera.y = (centerY - h / 2) / this.camera.zoom - wy;
         this.clampCamera();
+        if (this.callbacks.onViewChange) {
+            this.callbacks.onViewChange();
+        }
     }
 }

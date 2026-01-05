@@ -2,25 +2,51 @@ import { Grid } from './grid.js';
 import { Renderer } from './renderer.js';
 import { InputHandler } from './input.js';
 class ProgressManager {
-    storageKey = 'slitherlink_progress';
+    progressKey = 'slitherlink_progress';
+    stateKeyPrefix = 'slitherlink_state_';
     getProgress(size, difficulty) {
-        const data = this.loadData();
+        const data = this.loadProgress();
         return data[`${size}_${difficulty}`] || 0;
     }
     saveProgress(size, difficulty, levelIndex) {
-        const data = this.loadData();
+        const data = this.loadProgress();
         // Only update if we progressed further
         if ((data[`${size}_${difficulty}`] || 0) <= levelIndex) {
             data[`${size}_${difficulty}`] = levelIndex + 1; // Store next level index
-            localStorage.setItem(this.storageKey, JSON.stringify(data));
+            localStorage.setItem(this.progressKey, JSON.stringify(data));
         }
+        // Clear active state for this size since we won
+        localStorage.removeItem(this.activeStateKey(size));
     }
-    loadData() {
-        const stored = localStorage.getItem(this.storageKey);
+    saveActiveState(size, difficulty, levelIndex, history, historyIndex, camera) {
+        const state = {
+            size,
+            difficulty,
+            levelIndex,
+            history,
+            historyIndex,
+            camera,
+            timestamp: Date.now(),
+        };
+        localStorage.setItem(this.activeStateKey(size), JSON.stringify(state));
+    }
+    loadActiveState(size) {
+        const stored = localStorage.getItem(this.activeStateKey(size));
+        return stored ? JSON.parse(stored) : null;
+    }
+    hasActiveState(size) {
+        return !!localStorage.getItem(this.activeStateKey(size));
+    }
+    activeStateKey(size) {
+        return `${this.stateKeyPrefix}${size}`;
+    }
+    loadProgress() {
+        const stored = localStorage.getItem(this.progressKey);
         return stored ? JSON.parse(stored) : {};
     }
 }
 class Game {
+    saveTimeout = null;
     canvas;
     camera;
     grid;
@@ -55,14 +81,87 @@ class Game {
                     const currentState = this.grid.getEdgeState(hex.q, hex.r, edgeIndex);
                     const newState = ((currentState + 1) % 3);
                     this.grid.setEdgeState(hex.q, hex.r, edgeIndex, newState);
+                    this.saveState();
                     // Check win condition (simple check for now, can be improved)
                     this.checkWin();
                 }
             },
+            onViewChange: () => {
+                this.debouncedSave();
+            },
         });
         this.initSplash();
+        this.initNavigation();
         window.addEventListener('resize', () => this.resize());
         this.resize();
+    }
+    initNavigation() {
+        window.addEventListener('popstate', (event) => {
+            // If we popped back to no state, show splash
+            if (!event.state || event.state.view === 'splash') {
+                this.showSplash();
+            }
+            else if (event.state.view === 'game') {
+                // Potentially handle restoration if coming forward,
+                // but for now we assume if we are already in game view we are good.
+                // Actually, if we are in splash and go forward, we might need to restore.
+                // For simplicity, mostly handling BACK to splash.
+                this.hideSplash();
+            }
+        });
+        // Check for existing active game of last used size (default medium)
+        // Actually, maybe better to check all sizes or just wait for user selection?
+        // User selection is safer to avoid auto-jumping into a game the user forgot about.
+        // So we persist but don't auto-load on page refresh unless we want that behavior.
+        // The request said "active_game_${size}", saving logic implies we support resuming.
+        // Let's rely on Start Game button to resume or start new.
+        // Actually, request says: "when reloading the page while a game is in progress, the map page is still shown"
+        // So we DO need to auto-load.
+        const lastSizeObj = localStorage.getItem('slitherlink_last_size');
+        if (lastSizeObj) {
+            const lastSize = lastSizeObj;
+            if (this.progressManager.hasActiveState(lastSize)) {
+                this.currentSize = lastSize;
+                const state = this.progressManager.loadActiveState(lastSize);
+                if (state) {
+                    this.currentDifficulty = state.difficulty;
+                    this.currentLevelIndex = state.levelIndex;
+                    this.hideSplash();
+                    // Replace history state so we can go back
+                    history.replaceState({ view: 'game' }, '');
+                    this.loadNextLevel(true); // true = restoring
+                }
+            }
+        }
+    }
+    saveState() {
+        this.progressManager.saveActiveState(this.currentSize, this.currentDifficulty, this.currentLevelIndex, this.grid.history, this.grid.historyIndex, this.camera);
+        // Update UI buttons state if needed
+    }
+    debouncedSave() {
+        if (this.saveTimeout) {
+            clearTimeout(this.saveTimeout);
+        }
+        this.saveTimeout = window.setTimeout(() => {
+            this.saveState();
+            this.saveTimeout = null;
+        }, 200);
+    }
+    showSplash() {
+        const splash = document.getElementById('splash');
+        const controls = document.getElementById('game-controls');
+        if (splash)
+            splash.classList.remove('hidden');
+        if (controls)
+            controls.classList.add('hidden');
+    }
+    hideSplash() {
+        const splash = document.getElementById('splash');
+        const controls = document.getElementById('game-controls');
+        if (splash)
+            splash.classList.add('hidden');
+        if (controls)
+            controls.classList.remove('hidden');
     }
     initSplash() {
         const startBtn = document.getElementById('start-btn');
@@ -70,20 +169,59 @@ class Game {
         const diffSelect = document.getElementById('difficulty-select');
         const splash = document.getElementById('splash');
         if (startBtn && sizeSelect && diffSelect && splash) {
+            const homeBtn = document.getElementById('home-btn');
+            const undoBtn = document.getElementById('undo-btn');
+            const redoBtn = document.getElementById('redo-btn');
+            if (homeBtn) {
+                homeBtn.onclick = () => {
+                    history.back(); // Simulate back button
+                };
+            }
+            if (undoBtn) {
+                undoBtn.onclick = () => {
+                    this.grid.undo();
+                    this.renderer.render(this.canvas);
+                    this.saveState();
+                };
+            }
+            if (redoBtn) {
+                redoBtn.onclick = () => {
+                    this.grid.redo();
+                    this.renderer.render(this.canvas);
+                    this.saveState();
+                };
+            }
             startBtn.onclick = () => {
                 this.currentSize = sizeSelect.value;
                 this.currentDifficulty = diffSelect.value;
-                this.currentLevelIndex = this.progressManager.getProgress(this.currentSize, this.currentDifficulty);
-                console.log(`Starting game: ${this.currentSize} ${this.currentDifficulty} Level ${this.currentLevelIndex}`);
-                splash.classList.add('hidden');
-                this.loadNextLevel();
+                localStorage.setItem('slitherlink_last_size', this.currentSize);
+                // Check if there is an active game for this size to resume
+                const state = this.progressManager.loadActiveState(this.currentSize);
+                let restoring = false;
+                if (state) {
+                    // We have a saved game. If it matches difficulty, resume it.
+                    // (If user changed difficulty in dropdown, maybe reset?
+                    //  But simple behavior: if active game exists for size, resume it regardless of dropdown difficulty,
+                    //  or prompt? Let's just resume and update difficulty to match state.)
+                    this.currentDifficulty = state.difficulty;
+                    this.currentLevelIndex = state.levelIndex;
+                    restoring = true;
+                }
+                else {
+                    // New game
+                    this.currentLevelIndex = this.progressManager.getProgress(this.currentSize, this.currentDifficulty);
+                }
+                console.log(`Starting game: ${this.currentSize} ${this.currentDifficulty} Level ${this.currentLevelIndex} (Restoring: ${restoring})`);
+                this.hideSplash();
+                history.pushState({ view: 'game' }, '');
+                this.loadNextLevel(restoring);
             };
         }
     }
-    loadNextLevel() {
+    loadNextLevel(restoring = false) {
         // Construct path to the map file
         const mapPath = `maps/${this.currentSize}/${this.currentLevelIndex}.bin`;
-        this.loadMap(mapPath);
+        this.loadMap(mapPath, restoring);
     }
     checkWin() {
         if (this.grid.isSolved()) {
@@ -97,7 +235,7 @@ class Game {
             }, 50);
         }
     }
-    loadMap(mapFile) {
+    loadMap(mapFile, restoring = false) {
         fetch(mapFile)
             .then((res) => {
             if (!res.ok)
@@ -107,6 +245,21 @@ class Game {
             .then((buffer) => {
             console.log('Loading map binary...');
             this.grid.loadBinaryMap(buffer);
+            if (restoring) {
+                const state = this.progressManager.loadActiveState(this.currentSize);
+                if (state && state.history) {
+                    this.grid.loadHistory(state.history, state.historyIndex);
+                }
+                if (state && state.camera) {
+                    this.camera.x = state.camera.x;
+                    this.camera.y = state.camera.y;
+                    this.camera.zoom = state.camera.zoom;
+                }
+            }
+            else {
+                // New game, save initial state
+                this.saveState();
+            }
             this.renderer.render(this.canvas);
             // Update constraints
             const bounds = this.renderer.getGridBounds();
@@ -114,7 +267,6 @@ class Game {
         })
             .catch((err) => {
             console.error('Failed to load map:', err);
-            // Fallback to default generated grid is already done above
         });
     }
     resize() {
