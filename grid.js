@@ -336,6 +336,19 @@ export class Grid {
             this.historyIndex = i;
         }
     }
+    resetToStart() {
+        this.edgeStates.clear();
+        for (const hex of this.hexagons.values()) {
+            hex.color = HexColor.EMPTY;
+        }
+        this.historyIndex = -1;
+    }
+    get canUndo() {
+        return this.historyIndex >= 0;
+    }
+    get canRedo() {
+        return this.historyIndex < this.history.length - 1;
+    }
     getVertexState(hex, cornerIndex) {
         const e1Index = ((cornerIndex + 5) % 6);
         const s1 = this.getEdgeState(hex.q, hex.r, e1Index);

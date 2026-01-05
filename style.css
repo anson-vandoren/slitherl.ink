@@ -141,3 +141,42 @@ button:active {
   width: 100%;
   height: 100%;
 }
+
+.icon-btn:disabled,
+.icon-btn.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: default;
+  box-shadow: none;
+  transform: none;
+}
+
+#reset-modal {
+  background-color: rgba(29, 32, 33, 0.95);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 200; /* Above splash/win screens if needed, but same level is fine */
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+#reset-modal p {
+  color: var(--fg);
+  margin-bottom: 2rem;
+  line-height: 1.5;
+}
+
+#reset-cancel-btn {
+  background-color: var(--gray);
+  color: var(--bg0-hard);
+}

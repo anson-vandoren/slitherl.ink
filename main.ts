@@ -129,6 +129,7 @@ class Game {
 
           // Check win condition (simple check for now, can be improved)
           this.checkWin();
+          this.updateButtonStates();
         }
       },
       onViewChange: () => {
@@ -145,10 +146,12 @@ class Game {
 
     this.initSplash();
     this.initWinScreen();
+    this.initResetModal();
     this.initNavigation();
 
     window.addEventListener('resize', () => this.resize());
     this.resize();
+    this.updateButtonStates();
   }
 
   initNavigation() {
@@ -313,6 +316,7 @@ class Game {
           this.grid.undo();
           this.renderer.render(this.canvas);
           this.saveGameHistory();
+          this.updateButtonStates();
         };
       }
 
@@ -321,6 +325,7 @@ class Game {
           this.grid.redo();
           this.renderer.render(this.canvas);
           this.saveGameHistory();
+          this.updateButtonStates();
         };
       }
 
@@ -364,8 +369,59 @@ class Game {
             alert('Could not restore active game.');
             this.showSplash();
           }
+          this.updateButtonStates();
         });
       };
+    }
+  }
+
+  initResetModal() {
+    const resetBtn = document.getElementById('reset-btn');
+    const modal = document.getElementById('reset-modal');
+    const cancelBtn = document.getElementById('reset-cancel-btn');
+    const confirmBtn = document.getElementById('reset-confirm-btn');
+
+    if (resetBtn && modal && cancelBtn && confirmBtn) {
+      resetBtn.onclick = () => {
+        modal.classList.remove('hidden');
+      };
+
+      cancelBtn.onclick = () => {
+        modal.classList.add('hidden');
+      };
+
+      confirmBtn.onclick = () => {
+        this.grid.resetToStart();
+        this.renderer.render(this.canvas);
+        this.saveGameHistory();
+        this.updateButtonStates();
+        modal.classList.add('hidden');
+      };
+    }
+  }
+
+  updateButtonStates() {
+    const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement;
+    const redoBtn = document.getElementById('redo-btn') as HTMLButtonElement;
+
+    if (undoBtn) {
+      if (this.grid.canUndo) {
+        undoBtn.classList.remove('disabled');
+        undoBtn.disabled = false;
+      } else {
+        undoBtn.classList.add('disabled');
+        undoBtn.disabled = true;
+      }
+    }
+
+    if (redoBtn) {
+      if (this.grid.canRedo) {
+        redoBtn.classList.remove('disabled');
+        redoBtn.disabled = false;
+      } else {
+        redoBtn.classList.add('disabled');
+        redoBtn.disabled = true;
+      }
     }
   }
 
@@ -429,6 +485,7 @@ class Game {
       }
 
       this.renderer.render(this.canvas);
+      this.updateButtonStates();
 
       // Update constraints
       const bounds = this.renderer.getGridBounds();
