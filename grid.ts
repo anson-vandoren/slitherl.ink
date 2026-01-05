@@ -191,24 +191,34 @@ export class Grid {
       effectiveS3 = 3;
     }
 
-    const states = [s1, s2, effectiveS3];
-    // Filter not needed anymore as we handle s3=-1 via effectiveS3=3
+    const forcesOff = (a: number, b: number) => {
+      const aActive = a === 1;
+      const bActive = b === 1;
+      const aInactive = a === 2 || a === 3;
+      const bInactive = b === 2 || b === 3;
+      return (aActive && bActive) || (aInactive && bInactive);
+    };
 
-    const activeCount = states.filter((s) => s === 1).length;
-    const inactiveCount = states.filter((s) => s === 2 || s === 3).length;
-    const neutralCount = states.filter((s) => s === 0).length;
+    // Check s1
+    if (s1 === 0 && forcesOff(s2, effectiveS3)) {
+      this.setEdgeState(hex.q, hex.r, e1Index, 3);
+    } else if (s1 === 3 && !forcesOff(s2, effectiveS3)) {
+      this.setEdgeState(hex.q, hex.r, e1Index, 0);
+    }
 
-    if (neutralCount === 1) {
-      // We have exactly one neutral edge, determining if we should flip it
-      let shouldTurnOff = false;
-      if (activeCount === 2) shouldTurnOff = true;
-      if (inactiveCount === 2) shouldTurnOff = true;
+    // Check s2
+    if (s2 === 0 && forcesOff(s1, effectiveS3)) {
+      this.setEdgeState(hex.q, hex.r, e2Index, 3);
+    } else if (s2 === 3 && !forcesOff(s1, effectiveS3)) {
+      this.setEdgeState(hex.q, hex.r, e2Index, 0);
+    }
 
-      if (shouldTurnOff) {
-        // Find which one is neutral and set it
-        if (s1 === 0) this.setEdgeState(hex.q, hex.r, e1Index, 3);
-        else if (s2 === 0) this.setEdgeState(hex.q, hex.r, e2Index, 3);
-        else if (s3 === 0 && setS3) setS3(3);
+    // Check s3
+    if (setS3) {
+      if (s3 === 0 && forcesOff(s1, s2)) {
+        setS3(3);
+      } else if (s3 === 3 && !forcesOff(s1, s2)) {
+        setS3(0);
       }
     }
   }
