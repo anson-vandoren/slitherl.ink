@@ -45,12 +45,6 @@ export enum VertexDirection {
   NE = 5,
 }
 
-function verticesForEdge(edge: EdgeDirection): [VertexDirection, VertexDirection] {
-  const v1 = edge as unknown as VertexDirection;
-  const v2 = ((edge + 1) % 6) as VertexDirection;
-  return [v1, v2];
-}
-
 export interface Move {
   q: number;
   r: number;
@@ -62,18 +56,22 @@ export interface Move {
 export class Grid {
   radius: number;
   hexagons: Map<string, Hex>;
-  edgeStates: Map<string, EdgeState>;
+  edgeStates: Map<string, EdgeState>; // Stores only ACTIVE or OFF (user set)
+  derivedStates: Map<string, EdgeState>; // Stores CALCULATED_OFF
   solutionEdges: Set<string>;
   history: Move[];
-  historyIndex: number; // Points to the last applied move. -1 if no moves.
+  historyIndex: number;
+  isDirty: boolean;
 
   constructor() {
     this.radius = -1;
     this.hexagons = new Map();
     this.edgeStates = new Map();
+    this.derivedStates = new Map();
     this.solutionEdges = new Set();
     this.history = [];
     this.historyIndex = -1;
+    this.isDirty = false;
   }
 
   generateGrid() {
@@ -193,7 +191,20 @@ export class Grid {
 
   getEdgeState(q: number, r: number, dir: EdgeDirection): EdgeState {
     const key = this.getCanonicalEdgeKey(q, r, dir);
-    return this.edgeStates.get(key) || EdgeState.UNKNOWN;
+
+    // 1. Check user state first
+    const userState = this.edgeStates.get(key);
+    if (userState !== undefined && userState !== EdgeState.UNKNOWN) {
+      return userState;
+    }
+
+    // 2. If dirty, recalculate
+    if (this.isDirty) {
+      this.recalculateDerivedStates();
+    }
+
+    // 3. Return derived state or UNKNOWN
+    return this.derivedStates.get(key) || EdgeState.UNKNOWN;
   }
 
   setEdgeState(
@@ -203,16 +214,17 @@ export class Grid {
     newState: EdgeState,
     recordMove: boolean = true
   ) {
+    // Only allow setting ACTIVE, OFF, or UNKNOWN (clearing).
+    // CALCULATED_OFF is read-only logic.
+    if (newState === EdgeState.CALCULATED_OFF) {
+      return;
+    }
+
     const key = this.getCanonicalEdgeKey(q, r, edgeIndex);
     const existing = this.edgeStates.get(key) || EdgeState.UNKNOWN;
 
     if (existing === newState && recordMove) return;
 
-    // Check if we are loosening a firm constraint, which requires ensuring derived states are re-validated
-    const isFirm = (s: EdgeState) => s === EdgeState.ACTIVE || s === EdgeState.OFF;
-    const isLoosening = isFirm(existing) && !isFirm(newState);
-
-    // If we're making a new move (not undoing/redoing), clear any future history
     if (recordMove) {
       if (this.historyIndex < this.history.length - 1) {
         this.history = this.history.slice(0, this.historyIndex + 1);
@@ -227,151 +239,13 @@ export class Grid {
       this.historyIndex++;
     }
 
-    // 1. Identify affected Calculated edges if loosening
-    const edgesToReset: { q: number; r: number; dir: EdgeDirection; key: string }[] = [];
-    if (isLoosening) {
-      this.findConnectedCalculatedEdges(q, r, edgeIndex, edgesToReset);
+    if (newState === EdgeState.UNKNOWN) {
+      this.edgeStates.delete(key);
+    } else {
+      this.edgeStates.set(key, newState);
     }
 
-    // 2. Update the primary edge
-    this.edgeStates.set(key, newState);
-
-    // 3. Reset affected calculated edges to UNKNOWN
-    for (const edge of edgesToReset) {
-      // Record these changes in history too if recording
-      const vKey = edge.key;
-      const vState = this.edgeStates.get(vKey) || EdgeState.UNKNOWN;
-      if (vState !== EdgeState.UNKNOWN) {
-        if (recordMove) {
-          this.history.push({
-            q: edge.q,
-            r: edge.r,
-            edgeIndex: edge.dir,
-            oldState: vState,
-            newState: EdgeState.UNKNOWN,
-          });
-          this.historyIndex++;
-        }
-        this.edgeStates.set(vKey, EdgeState.UNKNOWN);
-      }
-    }
-
-    // 4. Propagate updates (Check vertices)
-    // We check the original edge's vertices AND all reset edges' vertices.
-    const verticesToCheck = new Set<string>();
-
-    const addVertices = (q: number, r: number, d: EdgeDirection) => {
-      const [v1, v2] = verticesForEdge(d);
-      verticesToCheck.add(`${q},${r},${v1}`);
-      verticesToCheck.add(`${q},${r},${v2}`);
-      // Note: Vertices are shared, but checkVertex uses (hex, corner).
-      // The neighboring hex sees the same vertex with a different index.
-      // checkVertex iterates around the vertex looking at edges.
-      // Does checkVertex handle the "other side" automatically?
-      // checkVertex(hex, v) computes logic based on edges around v.
-      // It sets edges.
-      // So checking from ONE side is sufficient if it covers all 3 edges?
-      // Yes, getVertexState gathers s1, s2, s3 (neighbor).
-      // So checking (q,r,v1) is enough to cover the vertex logic.
-    };
-
-    addVertices(q, r, edgeIndex);
-    for (const e of edgesToReset) {
-      addVertices(e.q, e.r, e.dir);
-    }
-
-    // Also add neighbors of the original edge?
-    // If I changed A, neighbors B and C need checking.
-    // addVertices adds the vertices of A.
-    // The checks at these vertices involves A, B, C. So B and C are checked.
-    // Correct.
-
-    // Run checks
-    for (const keyStr of verticesToCheck) {
-      const parts = keyStr.split(',');
-      if (parts.length === 3) {
-        const qs = parts[0];
-        const rs = parts[1];
-        const vs = parts[2];
-        if (qs !== undefined && rs !== undefined && vs !== undefined) {
-          const hex = this.getHex(parseInt(qs), parseInt(rs));
-          if (hex) {
-            this.checkVertex(hex, parseInt(vs) as VertexDirection);
-          }
-        }
-      }
-    }
-  }
-
-  findConnectedCalculatedEdges(
-    startQ: number,
-    startR: number,
-    startDir: EdgeDirection,
-    results: { q: number; r: number; dir: EdgeDirection; key: string }[]
-  ) {
-    // DFS/BFS to find all reachable CALCULATED_OFF edges.
-    // We traverse across vertices.
-
-    const visited = new Set<string>();
-    // Note: The start edge itself is changing to UNKNOWN (or similar).
-    // We want to find *neighbors* that are CALCULATED_OFF.
-
-    const queue: { q: number; r: number; dir: EdgeDirection }[] = [];
-
-    // Gather initial neighbors (Calculated ones)
-    const addNeighbors = (q: number, r: number, d: EdgeDirection) => {
-      const activeHex = this.getHex(q, r);
-      if (!activeHex) return;
-      const [v1, v2] = verticesForEdge(d);
-
-      const checkV = (v: VertexDirection) => {
-        const ctx = this.getVertexState(activeHex, v);
-        // Check s1 (e1Index), s2 (e2Index), s3 (neighborContext)
-        // We want to add any that are CALCULATED_OFF and not visited.
-
-        const processEdge = (sq: number, sr: number, sdir: EdgeDirection, state: EdgeState) => {
-          if (state === EdgeState.CALCULATED_OFF) {
-            const skey = this.getCanonicalEdgeKey(sq, sr, sdir);
-            if (!visited.has(skey)) {
-              visited.add(skey);
-              const item = { q: sq, r: sr, dir: sdir, key: skey };
-              results.push(item);
-              queue.push(item);
-            }
-          }
-        };
-
-        // s1 (e1) - activeHex
-        processEdge(activeHex.q, activeHex.r, ctx.e1Index, ctx.s1);
-        // s2 (e2) - activeHex
-        processEdge(activeHex.q, activeHex.r, ctx.e2Index, ctx.s2);
-        // s3 - neighbor
-        if (ctx.neighborContext) {
-          processEdge(
-            ctx.neighborContext.hex.q,
-            ctx.neighborContext.hex.r,
-            ctx.neighborContext.edgeIndex,
-            ctx.s3
-          );
-        }
-      };
-
-      checkV(v1);
-      checkV(v2);
-    };
-
-    addNeighbors(startQ, startR, startDir);
-
-    // Process queue
-    let head = 0;
-    while (head < queue.length) {
-      const current = queue[head];
-      head++;
-      if (current) {
-        // Recursively add neighbors of this calculated edge
-        addNeighbors(current.q, current.r, current.dir);
-      }
-    }
+    this.isDirty = true;
   }
 
   undo() {
@@ -397,17 +271,29 @@ export class Grid {
   loadHistory(history: Move[], index: number) {
     this.history = history;
     this.historyIndex = -1;
+    this.edgeStates.clear();
+    this.isDirty = true;
+
     for (let i = 0; i <= index; i++) {
       const move = this.history[i];
       if (move) {
-        this.setEdgeState(move.q, move.r, move.edgeIndex, move.newState, false);
+        // Directly set map to avoid overhead, will recalc at end
+        const key = this.getCanonicalEdgeKey(move.q, move.r, move.edgeIndex);
+        if (move.newState === EdgeState.UNKNOWN) {
+          this.edgeStates.delete(key);
+        } else {
+          this.edgeStates.set(key, move.newState);
+        }
       }
-      this.historyIndex = i;
     }
+    this.historyIndex = index;
+    // this.isDirty is already true
   }
 
   resetToStart() {
     this.edgeStates.clear();
+    this.derivedStates.clear();
+    this.isDirty = false;
     for (const hex of this.hexagons.values()) {
       hex.color = HexColor.EMPTY;
     }
@@ -422,83 +308,14 @@ export class Grid {
     return this.historyIndex < this.history.length - 1;
   }
 
-  getVertexState(hex: Hex, cornerIndex: VertexDirection) {
-    const e1Index = ((cornerIndex + 5) % 6) as EdgeDirection;
-    const s1 = this.getEdgeState(hex.q, hex.r, e1Index);
-
-    const e2Index = cornerIndex as unknown as EdgeDirection;
-    const s2 = this.getEdgeState(hex.q, hex.r, e2Index);
-
-    const n1 = this.getNeighbor(hex.q, hex.r, e1Index);
-    const n2 = this.getNeighbor(hex.q, hex.r, e2Index);
-    const dirN1toN2 = ((cornerIndex + 1) % 6) as EdgeDirection;
-    const dirN2toN1 = ((cornerIndex + 4) % 6) as EdgeDirection;
-
-    let s3 = EdgeState.UNKNOWN;
-    let neighborContext: { hex: Hex; edgeIndex: EdgeDirection } | null = null;
-
-    if (n1) {
-      s3 = this.getEdgeState(n1.q, n1.r, dirN1toN2);
-      neighborContext = { hex: n1, edgeIndex: dirN1toN2 };
-    } else if (n2) {
-      s3 = this.getEdgeState(n2.q, n2.r, dirN2toN1);
-      neighborContext = { hex: n2, edgeIndex: dirN2toN1 };
-    } else {
-      s3 = EdgeState.CALCULATED_OFF;
-    }
-
-    return {
-      s1,
-      e1Index,
-      s2,
-      e2Index,
-      s3,
-      neighborContext,
-      forcesE1: this.forcesOff(s2, s3),
-      forcesE2: this.forcesOff(s1, s3),
-      forcesS3: this.forcesOff(s1, s2),
-    };
-  }
-
-  forcesOff(aVal: EdgeState, bVal: EdgeState): boolean {
-    if (aVal === EdgeState.ACTIVE && bVal === EdgeState.ACTIVE) return true;
-    const isInactive = (v: EdgeState) => v === EdgeState.OFF || v === EdgeState.CALCULATED_OFF;
-    if (isInactive(aVal) && isInactive(bVal)) return true;
-    return false;
-  }
-
-  checkVertex(hex: Hex, cornerIndex: VertexDirection) {
-    const ctx = this.getVertexState(hex, cornerIndex);
-
-    // E1 Logic
-    if (ctx.s1 === EdgeState.UNKNOWN && ctx.forcesE1) {
-      this.setEdgeState(hex.q, hex.r, ctx.e1Index, EdgeState.CALCULATED_OFF);
-    }
-
-    // E2 Logic
-    if (ctx.s2 === EdgeState.UNKNOWN && ctx.forcesE2) {
-      this.setEdgeState(hex.q, hex.r, ctx.e2Index, EdgeState.CALCULATED_OFF);
-    }
-
-    // S3 Logic
-    if (ctx.neighborContext) {
-      if (ctx.s3 === EdgeState.UNKNOWN && ctx.forcesS3) {
-        this.setEdgeState(
-          ctx.neighborContext.hex.q,
-          ctx.neighborContext.hex.r,
-          ctx.neighborContext.edgeIndex,
-          EdgeState.CALCULATED_OFF
-        );
-      }
-    }
-  }
-
   loadBinaryMap(buffer: ArrayBuffer) {
     this.hexagons.clear();
     this.edgeStates.clear();
+    this.derivedStates.clear();
     this.solutionEdges.clear();
     this.history = [];
     this.historyIndex = -1;
+    this.isDirty = false;
 
     const view = new DataView(buffer);
     this.radius = view.getUint8(0);
@@ -544,6 +361,7 @@ export class Grid {
   }
 
   isSolved(): boolean {
+    // Only check user states against solution
     for (const key of this.solutionEdges) {
       if (this.edgeStates.get(key) !== EdgeState.ACTIVE) return false;
     }
@@ -555,5 +373,157 @@ export class Grid {
     }
 
     return true;
+  }
+
+  // --- Recalculation Logic ---
+
+  recalculateDerivedStates() {
+    this.derivedStates.clear();
+
+    // Algorithm:
+    // 1. Identify all "active" edges (from user input).
+    // 2. Propagate "forced off" constraints until stability.
+    // Constraint: specific to Slitherlink on Hex?
+    // "Lines cannot branch". So if a vertex has 2 ACTIVE edges, 3rd must be OFF.
+    // "Lines cannot end". If a vertex has 2 OFF edges, 3rd must be OFF? No, depends on loop.
+    // Wait, 2 OFF edges means the 3rd CANNOT be ACTIVE (must be OFF). so yes.
+    // Basically:
+    // - If 2 edges at a vertex are ACTIVE => 3rd is OFF.
+    // - If 2 edges at a vertex are OFF => 3rd is OFF.
+    // (This covers both "no branching" and "continuity" in a loose way -
+    // actually "2 OFF" implies the 3rd cannot be the *single* path to/from that vertex.
+    // because degree must be 0 or 2. If 2 are OFF, degree is 0 or 1. If 1 is ACTIVE, bad.
+    // So if 2 are OFF, 3rd must be OFF to maintain degree 0.)
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+      // Iterate all vertices.
+      // How to iterate vertices?
+      // Vertices are uniquely identified by (hex, direction).
+      // But vertices are shared. One specific vertex is incident to 3 edges.
+      // (hex, vDir), (neighbor1, vDir'), (neighborN, vDir'').
+      // We can iterate all hexes, and for each hex iterate its 6 vertices.
+      // We can use a Set to track visited vertices to avoid 3x work, but simple iteration is fine for now.
+
+      // Note: getVertexState returns the 3 edges incident to a corner.
+      // We can reimplement a simplified version here.
+
+      for (const hex of this.hexagons.values()) {
+        for (let i = 0; i < 6; i++) {
+          const cornerIndex = i as VertexDirection;
+
+          // Identify the 3 edges meeting at this vertex
+          // 1. Edge e1: on hex, direction (i+5)%6
+          // 2. Edge e2: on hex, direction i
+          // 3. Edge e3: connecting the two neighbors.
+
+          const e1Dir = ((cornerIndex + 5) % 6) as EdgeDirection; // "Left" edge
+          const e2Dir = cornerIndex as unknown as EdgeDirection; // "Right" edge
+
+          // Keys
+          const key1 = this.getCanonicalEdgeKey(hex.q, hex.r, e1Dir);
+          const key2 = this.getCanonicalEdgeKey(hex.q, hex.r, e2Dir);
+
+          // Neighbors for finding edge 3
+          const n1 = this.getNeighbor(hex.q, hex.r, e1Dir);
+          const n2 = this.getNeighbor(hex.q, hex.r, e2Dir);
+
+          let key3: string | null = null;
+
+          if (n1) {
+            // Edge between n1 and n2?
+            // From n1's perspective: it shares e1 with hex.
+            // We need the edge leading to n2.
+            // Direction from n1 to n2.
+            // n1 is at hex+e1Dir. n2 is at hex+e2Dir.
+            // The direction from n1 to n2 corresponds to...
+            // Well, simpler:
+            // e3 is the edge of n1 in direction such that it touches this vertex.
+            // n1's view of this vertex...
+            // n1 is neighbor at (hex.q, hex.r) in direction e1Dir.
+            // The vertex is shared.
+            // Vertex on hex is 'cornerIndex'.
+            // Vertex on n1?
+            // (cornerIndex + 2)? Let's check.
+            // If hex is center, i=0 (East vertex).
+            // e1Dir = NE(5). n1 is NE neighbor.
+            // e2Dir = SE(0). n2 is SE neighbor.
+            // Vertex 0 of Hex touches NE and SE edges.
+            // NE Neighbor needs to look at its SW vertex? No.
+            // NE Neighbor (q+1, r-1).
+            // Edge connecting NE Neighbor and SE Neighbor?
+            // S edge of NE neighbor.
+            // Correct.
+            // So for n1, edge is ((cornerIndex + 1) % 6)?
+            // if corner=0, e1Dir=5 (NE). Dir 5+1 = 6? 0? No.
+            // If n1 is NE(5), edge to SE(0) neighbor is S(1).
+            // (5 + 2) % 6? = 1.
+            // Wait.
+            // let's trust getVertexState logic from before:
+            // "dirN1toN2 = ((cornerIndex + 1) % 6)"
+
+            const dirN1toN2 = ((cornerIndex + 1) % 6) as EdgeDirection;
+            key3 = this.getCanonicalEdgeKey(n1.q, n1.r, dirN1toN2);
+          } else if (n2) {
+            // Only n2 exists (and hex). This is specific boundary case?
+            // Or n1 empty, n2 exists.
+            // "dirN2toN1 = ((cornerIndex + 4) % 6)"
+            const dirN2toN1 = ((cornerIndex + 4) % 6) as EdgeDirection;
+            key3 = this.getCanonicalEdgeKey(n2.q, n2.r, dirN2toN1);
+          } else {
+            // No neighbors?
+            // Boundary vertex with only 2 edges (e1, e2).
+            key3 = null;
+          }
+
+          // Resolve states
+          // Helper to get state
+          const getState = (k: string | null) => {
+            if (!k) return EdgeState.CALCULATED_OFF; // Virtual edge is OFF
+            // Check user
+            const s = this.edgeStates.get(k);
+            if (s !== undefined && s !== EdgeState.UNKNOWN) return s;
+            // Check derived
+            const d = this.derivedStates.get(k);
+            if (d !== undefined) return d;
+            return EdgeState.UNKNOWN;
+          };
+
+          const s1 = getState(key1);
+          const s2 = getState(key2);
+          const s3 = getState(key3);
+
+          const isOff = (s: EdgeState) => s === EdgeState.OFF || s === EdgeState.CALCULATED_OFF;
+          const isActive = (s: EdgeState) => s === EdgeState.ACTIVE;
+
+          // Propagate
+          const propagate = (targetKey: string | null, otherA: EdgeState, otherB: EdgeState) => {
+            if (!targetKey) return;
+            // If target is already determined, skip
+            if (isOff(getState(targetKey)) || isActive(getState(targetKey))) return;
+
+            let newState = EdgeState.UNKNOWN;
+            if (isActive(otherA) && isActive(otherB)) {
+              newState = EdgeState.CALCULATED_OFF;
+            } else if (isOff(otherA) && isOff(otherB)) {
+              newState = EdgeState.CALCULATED_OFF;
+            }
+
+            if (newState === EdgeState.CALCULATED_OFF) {
+              if (!this.derivedStates.has(targetKey)) {
+                this.derivedStates.set(targetKey, EdgeState.CALCULATED_OFF);
+                changed = true;
+              }
+            }
+          };
+
+          propagate(key1, s2, s3);
+          propagate(key2, s1, s3);
+          propagate(key3, s1, s2);
+        }
+      }
+    }
+    this.isDirty = false;
   }
 }
