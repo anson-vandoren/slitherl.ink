@@ -149,14 +149,17 @@ export class Renderer {
     layerType: string
   ) {
     if (!corners) corners = this.getHexCorners(hex);
-    const { activeEdges } = hex;
 
     for (let i = 0; i < 6; i++) {
-      const neighbor = this.grid.getNeighbor(hex.q, hex.r, i);
+      // Use Canonical Key logic for checking if we should draw.
+      // But actually, we want to draw if the edge exists?
+      // The shared edge problem: we only want to draw it once.
+      // Original logic: "If neighbor exists, draw ONLY if we are the 'lesser' hex."
+      // New logic: We can query the state. If it exists, we draw it.
+      // But since we iterate ALL hexes, we will visit the edge twice.
+      // We must preserve the "draw once" logic.
 
-      // Canonical Edge Rule:
-      // If neighbor exists, draw ONLY if we are the "lesser" hex.
-      // If neighbor does NOT exist, we always draw.
+      const neighbor = this.grid.getNeighbor(hex.q, hex.r, i);
       let shouldDraw = true;
       if (neighbor) {
         if (neighbor.q < hex.q) shouldDraw = false;
@@ -164,7 +167,7 @@ export class Renderer {
       }
       if (!shouldDraw) continue;
 
-      const state = activeEdges[i];
+      const state = this.grid.getEdgeState(hex.q, hex.r, i);
       let matchesLayer = false;
 
       if (

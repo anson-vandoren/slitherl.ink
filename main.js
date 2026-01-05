@@ -1,4 +1,4 @@
-import { Grid, EdgeState } from './grid.js';
+import { Grid } from './grid.js';
 import { Renderer } from './renderer.js';
 import { InputHandler } from './input.js';
 class ProgressManager {
@@ -55,7 +55,7 @@ class Game {
                     const hex = hit.target;
                     const edgeIndex = hit.edgeIndex;
                     // Toggle edge on current hex
-                    const currentState = hex.activeEdges[edgeIndex] ?? EdgeState.UNKNOWN;
+                    const currentState = this.grid.getEdgeState(hex.q, hex.r, edgeIndex);
                     const newState = ((currentState + 1) % 3);
                     this.grid.setEdgeState(hex.q, hex.r, edgeIndex, newState);
                     // Check win condition (simple check for now, can be improved)
@@ -72,7 +72,6 @@ class Game {
         const sizeSelect = document.getElementById('size-select');
         const diffSelect = document.getElementById('difficulty-select');
         const splash = document.getElementById('splash');
-        const debugWinBtn = document.getElementById('debug-win-btn');
         if (startBtn && sizeSelect && diffSelect && splash) {
             startBtn.onclick = () => {
                 this.currentSize = sizeSelect.value;
@@ -80,15 +79,6 @@ class Game {
                 this.currentLevelIndex = this.progressManager.getProgress(this.currentSize, this.currentDifficulty);
                 console.log(`Starting game: ${this.currentSize} ${this.currentDifficulty} Level ${this.currentLevelIndex}`);
                 splash.classList.add('hidden');
-                this.loadNextLevel();
-            };
-        }
-        if (debugWinBtn) {
-            debugWinBtn.onclick = () => {
-                console.log('Simulating win...');
-                this.progressManager.saveProgress(this.currentSize, this.currentDifficulty, this.currentLevelIndex);
-                alert(`Level ${this.currentLevelIndex} Complete! Saved progress.`);
-                this.currentLevelIndex++;
                 this.loadNextLevel();
             };
         }
