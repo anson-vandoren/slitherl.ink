@@ -57,6 +57,7 @@ export class Grid {
   radius: number;
   hexagons: Map<string, Hex>;
   edgeStates: Map<string, EdgeState>; // Stores only ACTIVE or OFF (user set)
+  edgeColors: Map<string, number>; // Stores color ID (1-6) for ACTIVE edges
   derivedStates: Map<string, EdgeState>; // Stores CALCULATED_OFF
   solutionEdges: Set<string>;
   history: Move[];
@@ -67,6 +68,7 @@ export class Grid {
     this.radius = -1;
     this.hexagons = new Map();
     this.edgeStates = new Map();
+    this.edgeColors = new Map();
     this.derivedStates = new Map();
     this.solutionEdges = new Set();
     this.history = [];
@@ -292,6 +294,7 @@ export class Grid {
 
   resetToStart() {
     this.edgeStates.clear();
+    this.edgeColors.clear();
     this.derivedStates.clear();
     this.isDirty = false;
     for (const hex of this.hexagons.values()) {
@@ -311,6 +314,7 @@ export class Grid {
   loadBinaryMap(buffer: ArrayBuffer) {
     this.hexagons.clear();
     this.edgeStates.clear();
+    this.edgeColors.clear();
     this.derivedStates.clear();
     this.solutionEdges.clear();
     this.history = [];
@@ -525,5 +529,352 @@ export class Grid {
       }
     }
     this.isDirty = false;
+  }
+
+  // --- Edge Coloring Logic ---
+
+  getEdgeColor(q: number, r: number, dir: EdgeDirection): number {
+    const key = this.getCanonicalEdgeKey(q, r, dir);
+    return this.edgeColors.get(key) || 0;
+  }
+
+  setEdgeColor(q: number, r: number, dir: EdgeDirection, color: number) {
+    const key = this.getCanonicalEdgeKey(q, r, dir);
+    if (color === 0) {
+      this.edgeColors.delete(key);
+    } else {
+      this.edgeColors.set(key, color);
+    }
+  }
+
+  // Get all connected ACTIVE edges starting from a given edge
+  getConnectedComponent(q: number, r: number, dir: EdgeDirection): string[] {
+    const startKey = this.getCanonicalEdgeKey(q, r, dir);
+    if (this.edgeStates.get(startKey) !== EdgeState.ACTIVE) return [];
+
+    const component = new Set<string>();
+    const queue = [startKey];
+    component.add(startKey);
+
+    while (queue.length > 0) {
+      const currentKey = queue.shift()!;
+      // Parse key back to coords (expensive but robust) or we strictly follow graph.
+      // Need to find neighbors of this edge.
+      // Ends of the edge.
+      // Vertices...
+      // Let's use a simpler approach: iterate all connected edges at both vertices of this edge.
+
+      // Reverse key to coords
+      const parts = currentKey.split(',').map(Number);
+      const hq = parts[0]!;
+      const hr = parts[1]!;
+      const hd = parts[2] as EdgeDirection;
+
+      // 2 vertices for this edge:
+      // v1 at corner hd
+      // v2 at corner (hd + 1) % 6 ... no?
+      // Edge direction D connects corner D and corner (D+1)%6. ROUGHLY.
+      // Actually, in point-top hexes (which we seem to use if "N" is dq=0,dr=-1):
+      // corner 0 is usually E or SE?
+      // Let's rely on neighbors.
+      // Neighbors of an edge are edges sharing a vertex.
+      // There are 4 potential neighbors (2 at each end).
+
+      const neighbors = this.getEdgeNeighbors(hq, hr, hd);
+      for (const nKey of neighbors) {
+        if (this.edgeStates.get(nKey) === EdgeState.ACTIVE) {
+          if (!component.has(nKey)) {
+            component.add(nKey);
+            queue.push(nKey);
+          }
+        }
+      }
+    }
+
+    return Array.from(component);
+  }
+
+  getEdgeNeighbors(q: number, r: number, dir: EdgeDirection): string[] {
+    const neighbors: string[] = [];
+
+    // Vertex 1: "Start" of edge. Shared with (dir+5)%6 on same hex.
+    const v1_left = ((dir + 5) % 6) as EdgeDirection;
+    neighbors.push(this.getCanonicalEdgeKey(q, r, v1_left));
+
+    // The other edges at Vertex 1 might belong to neighbor hexes.
+    // Neighbor roughly at dir+4?
+    // Easier: getNeighbor(dir+5) -> its edge...
+    // Let's reuse Logic from recalculateDerivedStates if possible, or simplified.
+    // actually, simpler:
+    // A vertex is shared by 3 hexes.
+    // At a vertex, there are 3 edges meeting.
+    // If one is "dir", the other two are...
+
+    // Vertex A (between dir and dir+5 on this hex):
+    // Edges meeting here:
+    // 1. (q,r, dir)
+    // 2. (q,r, dir-1 aka dir+5)
+    // 3. The edge sticking out... which is (neighbor(dir+5), (dir+5)+2 = dir+1??)
+    // Let's use the explicit neighbor logic.
+
+    // Vertex 1 (Left end):
+    // connected edges:
+    // - (q,r, dir+5)
+    // - Edge connecting (neighbor(dir)) and (neighbor(dir+5)) ?? No.
+    // Let's look at the vertex shared by (q,r) and getNeighbor(dir+5).
+    // The edge between them is (q,r, dir+5).
+    // Wait, (q,r, dir) is the edge OF q,r in direction dir.
+    // It is shared with getNeighbor(dir).
+
+    // Let's define vertices by (Hex, CornerIndex).
+    // Edge (q,r, dir) connects Corner(dir) and Corner(dir+1). (Standard numbering)
+    // Corner(dir) is shared by:
+    // - Hex(q,r)
+    // - Neighbor(dir-1)
+    // - Neighbor(dir)
+
+    // Edges at Corner(dir):
+    // 1. Hex(q,r) edge `dir`
+    // 2. Hex(q,r) edge `dir-1`
+    // 3. Neighbor(dir-1) edge `dir+1` ?
+
+    // Let's just find all edges sharing endpoints.
+
+    // Vertex 1: Intersection of Hex, N(d-1), N(d).
+    // Edges: Hex.d, Hex.d-1, and Edge(N(d-1), N(d)).
+    const d_prev = ((dir + 5) % 6) as EdgeDirection;
+    const n_prev = this.getNeighbor(q, r, d_prev);
+    const n_curr = this.getNeighbor(q, r, dir);
+
+    // 1. Edge on Hex(d-1)
+    neighbors.push(this.getCanonicalEdgeKey(q, r, d_prev));
+
+    // 2. Third edge at Vertex 1: Connects N(d-1) and N(d).
+    if (n_prev) {
+      // If N(d-1) exists, it's Edge(d+1) of N(d-1)
+      const edge3Dir = ((d_prev + 2) % 6) as EdgeDirection;
+      neighbors.push(this.getCanonicalEdgeKey(n_prev.q, n_prev.r, edge3Dir));
+    } else if (n_curr) {
+      // Fallback: If N(d-1) is missing but N(d) exists.
+      // It's Edge(d+4) of N(d).
+      const edge3Dir = ((dir + 4) % 6) as EdgeDirection;
+      neighbors.push(this.getCanonicalEdgeKey(n_curr.q, n_curr.r, edge3Dir));
+    }
+
+    // Vertex 2: Intersection of Hex, N(d), N(d+1).
+    // Edges: Hex.d, Hex.d+1, and Edge(N(d), N(d+1)).
+    const d_next = ((dir + 1) % 6) as EdgeDirection;
+    const n_next = this.getNeighbor(q, r, d_next);
+
+    // 3. Edge on Hex(d+1)
+    neighbors.push(this.getCanonicalEdgeKey(q, r, d_next));
+
+    // 4. Third edge at Vertex 2: Connects N(d) and N(d+1).
+    if (n_curr) {
+      // If N(d) exists, it's Edge(d+2) of N(d)
+      const edge4Dir = ((dir + 2) % 6) as EdgeDirection;
+      neighbors.push(this.getCanonicalEdgeKey(n_curr.q, n_curr.r, edge4Dir));
+    } else if (n_next) {
+      // Fallback: If N(d) is missing but N(d+1) exists.
+      // It's Edge(d+5) of N(d+1).
+      const edge4Dir = ((d_next + 4) % 6) as EdgeDirection; // (d+1)+4 = d+5
+      neighbors.push(this.getCanonicalEdgeKey(n_next.q, n_next.r, edge4Dir));
+    }
+
+    return neighbors;
+  }
+
+  pickLeastUsedColor(): number {
+    const counts = [0, 0, 0, 0, 0, 0, 0]; // Index 1-6 used
+    for (const c of this.edgeColors.values()) {
+      if (c >= 1 && c <= 6) {
+        counts[c] = (counts[c] ?? 0) + 1;
+      }
+    }
+    let minCount = Infinity;
+    let candidates: number[] = [];
+    for (let i = 1; i <= 6; i++) {
+      const count = counts[i];
+      if (count !== undefined) {
+        if (count < minCount) {
+          minCount = count;
+          candidates = [i];
+        } else if (count === minCount) {
+          candidates.push(i);
+        }
+      }
+    }
+    // Randomly pick one of the candidates to vary it up
+    const picked = candidates[Math.floor(Math.random() * candidates.length)];
+    return picked !== undefined ? picked : 1;
+  }
+
+  applyColorToComponent(q: number, r: number, dir: EdgeDirection) {
+    // If already colored, clear it (toggle logic handled in Input usually, but request said:
+    // "if uncolored... apply. If colored... go back to uncolored")
+    // This method assumes we want to APPLY.
+
+    const color = this.pickLeastUsedColor();
+    const component = this.getConnectedComponent(q, r, dir);
+
+    for (const key of component) {
+      this.edgeColors.set(key, color);
+    }
+  }
+
+  clearColorFromComponent(q: number, r: number, dir: EdgeDirection) {
+    const component = this.getConnectedComponent(q, r, dir);
+    for (const key of component) {
+      this.edgeColors.delete(key);
+    }
+  }
+
+  handleEdgeChange(q: number, r: number, dir: EdgeDirection, newState: EdgeState) {
+    // This is called AFTER the state has been set.
+    // 1. If we turned ON an edge, we might merge two colored components?
+    // Request didn't specify behavior for merging. Usually we leave them or merge?
+    // "If a length of connected edges ... are subsequently split ... keep color ... new segments get new color"
+    // Nothing about merging. Let's assume merging keeps colors as is (allowing multi-color chains) or we do nothing.
+    // Simpler to do nothing on merge.
+
+    // 2. If we turned OFF an edge, we might have split a colored chain.
+    // We need to check if the edge WAS part of a colored chain.
+    // But the edge is now OFF, so it has no color (we should clean it up).
+    // But we need to know if its neighbors were colored.
+
+    // Problem: The edge is already OFF in `edgeStates`.
+    const key = this.getCanonicalEdgeKey(q, r, dir);
+    const wasColor = this.edgeColors.get(key);
+
+    // Always remove color from the edge itself if it's OFF
+    if (newState !== EdgeState.ACTIVE) {
+      this.edgeColors.delete(key);
+    }
+
+    // NEW LOGIC: Handle merging/extending
+    if (newState === EdgeState.ACTIVE) {
+      const neighbors = this.getEdgeNeighbors(q, r, dir);
+      // Find unique colors among neighbors
+      const neighborColors = new Set<number>();
+      for (const nKey of neighbors) {
+        if (this.edgeStates.get(nKey) === EdgeState.ACTIVE) {
+          const c = this.edgeColors.get(nKey);
+          if (c !== undefined) neighborColors.add(c);
+        }
+      }
+
+      if (neighborColors.size > 0) {
+        let targetColor = 0;
+
+        if (neighborColors.size === 1) {
+          targetColor = Array.from(neighborColors)[0]!;
+        } else {
+          // Multiple colors. We need to decide which one wins.
+          // WINNER: The one with the largest existing component.
+
+          // To check sizes, we pretend this edge is NOT active yet.
+          // (It shouldn't affect existing components except by joining them)
+          this.edgeStates.delete(key);
+
+          let maxSize = -1;
+
+          for (const c of neighborColors) {
+            // Find a neighbor with this color
+            const representativeKey = neighbors.find(
+              (k) => this.edgeStates.get(k) === EdgeState.ACTIVE && this.edgeColors.get(k) === c
+            );
+
+            if (representativeKey) {
+              // Split key to coords
+              const parts = representativeKey.split(',').map(Number);
+              const comp = this.getConnectedComponent(
+                parts[0]!,
+                parts[1]!,
+                parts[2] as EdgeDirection
+              );
+              if (comp.length > maxSize) {
+                maxSize = comp.length;
+                targetColor = c;
+              }
+            }
+          }
+
+          // Restore edge
+          this.edgeStates.set(key, EdgeState.ACTIVE);
+        }
+
+        // Apply to self
+        this.edgeColors.set(key, targetColor);
+
+        // Unify component
+        const fullComponent = this.getConnectedComponent(q, r, dir);
+        for (const compKey of fullComponent) {
+          this.edgeColors.set(compKey, targetColor);
+        }
+      }
+    }
+
+    if (wasColor && newState !== EdgeState.ACTIVE) {
+      // It was colored and is now OFF. Potential split.
+      // Check its neighbors.
+      const neighbors = this.getEdgeNeighbors(q, r, dir);
+      const activeNeighbors = neighbors.filter(
+        (k) => this.edgeStates.get(k) === EdgeState.ACTIVE && this.edgeColors.get(k) === wasColor
+      );
+
+      // Group neighbors by connectivity (DFS/BFS restricted to `wasColor` edges)
+      const groups: string[][] = [];
+      const visited = new Set<string>();
+
+      for (const nKey of activeNeighbors) {
+        if (visited.has(nKey)) continue;
+
+        // Find component of this neighbor, RESTRICTED to same color
+        const group: string[] = [];
+        const queue = [nKey];
+        visited.add(nKey);
+        group.push(nKey);
+
+        while (queue.length > 0) {
+          const curr = queue.shift()!;
+          // Get neighbors of curr
+          // We need to parse curr to get coords...
+          // A helper would be good.
+          const parts = curr.split(',').map(Number);
+          const subNeighbors = this.getEdgeNeighbors(
+            parts[0]!,
+            parts[1]!,
+            parts[2] as EdgeDirection
+          );
+
+          for (const sKey of subNeighbors) {
+            if (
+              this.edgeStates.get(sKey) === EdgeState.ACTIVE &&
+              this.edgeColors.get(sKey) === wasColor &&
+              !visited.has(sKey)
+            ) {
+              visited.add(sKey);
+              group.push(sKey);
+              queue.push(sKey);
+            }
+          }
+        }
+        groups.push(group);
+      }
+
+      // Now we have groups.
+      // Behavior: "longer of the two... keep color... new segments get new color"
+      // Sort groups by length descending.
+      groups.sort((a, b) => b.length - a.length);
+
+      // First group keeps color (already has it).
+      // Subsequent groups get new colors.
+      for (let i = 1; i < groups.length; i++) {
+        const newColor = this.pickLeastUsedColor();
+        for (const item of groups[i]!) {
+          this.edgeColors.set(item, newColor);
+        }
+      }
+    }
   }
 }

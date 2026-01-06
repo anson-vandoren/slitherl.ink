@@ -1,4 +1,4 @@
-import { Grid } from './grid.js';
+import { Grid, EdgeState } from './grid.js';
 import { Renderer } from './renderer.js';
 import { InputHandler } from './input.js';
 class ProgressManager {
@@ -20,11 +20,12 @@ class ProgressManager {
         // Clear active state for this size since we won
         localStorage.removeItem(this.activeStateKey(size));
     }
-    saveGameHistory(size, difficulty, levelIndex, history, historyIndex) {
-        this.saveGameHistoryWithTime(size, difficulty, levelIndex, history, historyIndex, 0 // Default to 0 if not using the time-aware method directly, thought Game class should handle this
-        );
+    saveGameHistory(size, difficulty, levelIndex, history, historyIndex, edgeColors) {
+        this.saveGameHistoryWithTime(size, difficulty, levelIndex, history, historyIndex, 0, // Default to 0 if not using the time-aware method directly, thought Game class should handle this
+        edgeColors);
     }
-    saveGameHistoryWithTime(size, difficulty, levelIndex, history, historyIndex, elapsedTime) {
+    saveGameHistoryWithTime(size, difficulty, levelIndex, history, historyIndex, elapsedTime, edgeColors // Serialized map
+    ) {
         const state = {
             size,
             difficulty,
@@ -32,6 +33,7 @@ class ProgressManager {
             history,
             historyIndex,
             elapsedTime,
+            edgeColors,
             timestamp: Date.now(),
         };
         localStorage.setItem(this.activeStateKey(size), JSON.stringify(state));
@@ -142,11 +144,31 @@ class Game {
                     const currentState = this.grid.getEdgeState(hex.q, hex.r, edgeIndex);
                     const newState = ((currentState + 1) % 3);
                     this.grid.setEdgeState(hex.q, hex.r, edgeIndex, newState);
+                    this.grid.handleEdgeChange(hex.q, hex.r, edgeIndex, newState); // handle splits
                     this.saveGameHistory();
                     // Check win condition (simple check for now, can be improved)
                     this.checkWin();
                     this.updateButtonStates();
                 }
+            },
+            onLongPress: (x, y) => {
+                const hit = this.renderer.getHit(this.canvas, x, y);
+                if (!hit || hit.type !== 'edge')
+                    return;
+                const hex = hit.target;
+                const edgeIndex = hit.edgeIndex;
+                const state = this.grid.getEdgeState(hex.q, hex.r, edgeIndex);
+                if (state !== EdgeState.ACTIVE)
+                    return; // Only color connected active edges
+                const currentColor = this.grid.getEdgeColor(hex.q, hex.r, edgeIndex);
+                if (currentColor === 0) {
+                    this.grid.applyColorToComponent(hex.q, hex.r, edgeIndex);
+                }
+                else {
+                    this.grid.clearColorFromComponent(hex.q, hex.r, edgeIndex);
+                }
+                this.saveGameHistory();
+                this.renderer.render(this.canvas);
             },
             onViewChange: () => {
                 // View change happens on every frame of drag/zoom.
@@ -244,7 +266,7 @@ class Game {
         return this.accumulatedTime;
     }
     saveGameHistory() {
-        this.progressManager.saveGameHistoryWithTime(this.currentSize, this.currentDifficulty, this.currentLevelIndex, this.grid.history, this.grid.historyIndex, this.getTime());
+        this.progressManager.saveGameHistoryWithTime(this.currentSize, this.currentDifficulty, this.currentLevelIndex, this.grid.history, this.grid.historyIndex, this.getTime(), Array.from(this.grid.edgeColors));
         // Update UI buttons state if needed
     }
     saveViewState() {
@@ -534,6 +556,9 @@ class Game {
                     // Restore time
                     if (typeof state.elapsedTime === 'number') {
                         this.accumulatedTime = state.elapsedTime;
+                    }
+                    if (state.edgeColors) {
+                        this.grid.edgeColors = new Map(state.edgeColors);
                     }
                 }
             }

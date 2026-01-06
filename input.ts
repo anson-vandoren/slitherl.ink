@@ -1,5 +1,6 @@
 interface Callbacks {
   onTap?: (x: number, y: number) => void;
+  onLongPress?: (x: number, y: number) => void;
   onViewChange?: () => void;
   onDragEnd?: () => void;
   onZoom?: () => void;
@@ -16,6 +17,8 @@ export class InputHandler {
   evCache: PointerEvent[];
   prevDiff: number;
   isDragging: boolean = false;
+  longPressTimer: number | null = null;
+  hasLongPressed: boolean = false;
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -133,13 +136,35 @@ export class InputHandler {
       this.isDragging = true;
       this.lastPos = { x: e.clientX, y: e.clientY };
       this.dragStartPos = { x: e.clientX, y: e.clientY };
+
+      // Start long press timer
+      this.startLongPressTimer(e.clientX, e.clientY);
     } else if (this.evCache.length === 2) {
       // Multi touch - start pinching, stop panning
+      this.cancelLongPressTimer();
       this.isDragging = false;
       this.prevDiff = Math.hypot(
         this.evCache[0]!.clientX - this.evCache[1]!.clientX,
         this.evCache[0]!.clientY - this.evCache[1]!.clientY
       );
+    }
+  }
+
+  startLongPressTimer(x: number, y: number) {
+    if (this.longPressTimer) clearTimeout(this.longPressTimer);
+    this.hasLongPressed = false;
+    this.longPressTimer = window.setTimeout(() => {
+      this.hasLongPressed = true;
+      if (this.callbacks.onLongPress) {
+        this.callbacks.onLongPress(x, y);
+      }
+    }, 500);
+  }
+
+  cancelLongPressTimer() {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
     }
   }
 
@@ -169,6 +194,11 @@ export class InputHandler {
       this.prevDiff = curDiff;
     } else if (this.evCache.length === 1 && this.isDragging) {
       // Panning
+      const dist = Math.hypot(e.clientX - this.dragStartPos.x, e.clientY - this.dragStartPos.y);
+      if (dist > 15) {
+        this.cancelLongPressTimer();
+      }
+
       const dx = e.clientX - this.lastPos.x;
       const dy = e.clientY - this.lastPos.y;
 
@@ -202,13 +232,14 @@ export class InputHandler {
 
     // 4. Handle Tap/End Drag
     if (this.evCache.length === 0) {
+      this.cancelLongPressTimer(); // Stop timer if it's still running
       this.isDragging = false;
       this.canvas.releasePointerCapture(e.pointerId);
 
       const dist = Math.hypot(e.clientX - this.dragStartPos.x, e.clientY - this.dragStartPos.y);
 
       // (Optional: Keep the 15px tolerance from before, it's still good practice for mobile)
-      if (dist < 15 && this.callbacks.onTap) {
+      if (dist < 15 && this.callbacks.onTap && !this.hasLongPressed) {
         this.callbacks.onTap(e.clientX, e.clientY);
       }
     } else if (this.evCache.length === 1) {

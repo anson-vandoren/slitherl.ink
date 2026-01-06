@@ -29,6 +29,12 @@ const COLORS = {
   aqua_bright: '#8ec07c',
   orange_bright: '#fe8019',
   gray_bright: '#a89984',
+  edge_1: '#fb4934', // Red
+  edge_2: '#b8bb26', // Green
+  edge_3: '#83a598', // Blue
+  edge_4: '#fabd2f', // Yellow
+  edge_5: '#d3869b', // Purple
+  edge_6: '#8ec07c', // Aqua
 };
 
 export class Renderer {
@@ -200,7 +206,14 @@ export class Renderer {
         ctx.stroke();
       } else if (state === EdgeState.ACTIVE) {
         // Active (1)
-        ctx.strokeStyle = COLORS.fg2;
+        const colorId = this.grid.getEdgeColor(hex.q, hex.r, i);
+        if (colorId > 0) {
+          // @ts-ignore
+          ctx.strokeStyle = COLORS[`edge_${colorId}`] || COLORS.fg2;
+        } else {
+          ctx.strokeStyle = COLORS.fg2;
+        }
+
         ctx.lineWidth = 3;
         ctx.setLineDash([]);
         ctx.lineCap = 'round';
