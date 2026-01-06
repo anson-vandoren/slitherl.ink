@@ -3,6 +3,7 @@ import { Renderer } from './renderer.js';
 import { InputHandler } from './input.js';
 class ProgressManager {
     progressKey = 'slitherlink_progress';
+    statsKey = 'slitherlink_stats';
     stateKeyPrefix = 'slitherlink_state_';
     viewKeyPrefix = 'slitherlink_view_';
     getProgress(size, difficulty) {
@@ -20,12 +21,17 @@ class ProgressManager {
         localStorage.removeItem(this.activeStateKey(size));
     }
     saveGameHistory(size, difficulty, levelIndex, history, historyIndex) {
+        this.saveGameHistoryWithTime(size, difficulty, levelIndex, history, historyIndex, 0 // Default to 0 if not using the time-aware method directly, thought Game class should handle this
+        );
+    }
+    saveGameHistoryWithTime(size, difficulty, levelIndex, history, historyIndex, elapsedTime) {
         const state = {
             size,
             difficulty,
             levelIndex,
             history,
             historyIndex,
+            elapsedTime,
             timestamp: Date.now(),
         };
         localStorage.setItem(this.activeStateKey(size), JSON.stringify(state));
@@ -64,6 +70,38 @@ class ProgressManager {
         const stored = localStorage.getItem(this.progressKey);
         return stored ? JSON.parse(stored) : {};
     }
+    saveCompletionTime(size, difficulty, time) {
+        const stats = this.loadStats();
+        const key = `${size}_${difficulty}`;
+        if (!stats[key]) {
+            stats[key] = [];
+        }
+        stats[key].push(time);
+        localStorage.setItem(this.statsKey, JSON.stringify(stats));
+    }
+    getStats(size, difficulty) {
+        const stats = this.loadStats();
+        const times = stats[`${size}_${difficulty}`] || [];
+        if (times.length === 0)
+            return null;
+        times.sort((a, b) => a - b);
+        const sum = times.reduce((a, b) => a + b, 0);
+        const mean = sum / times.length;
+        const median = times.length % 2 === 0
+            ? (times[times.length / 2 - 1] + times[times.length / 2]) / 2
+            : times[Math.floor(times.length / 2)];
+        return {
+            fastest: times[0],
+            slowest: times[times.length - 1],
+            mean,
+            median,
+            count: times.length,
+        };
+    }
+    loadStats() {
+        const stored = localStorage.getItem(this.statsKey);
+        return stored ? JSON.parse(stored) : {};
+    }
 }
 class Game {
     saveTimeout = null;
@@ -76,6 +114,9 @@ class Game {
     currentSize = 'medium';
     currentDifficulty = 'medium';
     currentLevelIndex = 0;
+    sessionStartTime = null;
+    accumulatedTime = 0;
+    isPaused = false;
     constructor() {
         let canvas = document.getElementsByTagName('canvas').namedItem('app');
         if (!canvas)
@@ -122,6 +163,10 @@ class Game {
         this.initWinScreen();
         this.initResetModal();
         this.initNavigation();
+        this.initNavigation();
+        document.addEventListener('visibilitychange', () => {
+            this.handleVisibilityChange();
+        });
         window.addEventListener('resize', () => this.resize());
         this.resize();
         this.updateButtonStates();
@@ -168,8 +213,38 @@ class Game {
             }
         }
     }
+    handleVisibilityChange() {
+        if (document.hidden) {
+            // Game hidden, pause timer
+            if (this.sessionStartTime !== null) {
+                this.accumulatedTime += Date.now() - this.sessionStartTime;
+                this.sessionStartTime = null;
+            }
+            this.saveGameHistory();
+        }
+        else {
+            // Game visible, resume timer if we have an active game
+            // We assume if we are on the game view, we resume.
+            // But we might be on splash screen.
+            // Ideally we only resume if we are actually playing.
+            // For now, if currentLevelIndex is set and we're not just initializing...
+            // Let's rely on loadMap starting the session.
+            // But if we just tabbed back in?
+            const winScreen = document.getElementById('win-screen');
+            const splash = document.getElementById('splash');
+            if (splash?.classList.contains('hidden') && winScreen?.classList.contains('hidden')) {
+                this.sessionStartTime = Date.now();
+            }
+        }
+    }
+    getTime() {
+        if (this.sessionStartTime !== null) {
+            return this.accumulatedTime + (Date.now() - this.sessionStartTime);
+        }
+        return this.accumulatedTime;
+    }
     saveGameHistory() {
-        this.progressManager.saveGameHistory(this.currentSize, this.currentDifficulty, this.currentLevelIndex, this.grid.history, this.grid.historyIndex);
+        this.progressManager.saveGameHistoryWithTime(this.currentSize, this.currentDifficulty, this.currentLevelIndex, this.grid.history, this.grid.historyIndex, this.getTime());
         // Update UI buttons state if needed
     }
     saveViewState() {
@@ -200,13 +275,48 @@ class Game {
         if (controls)
             controls.classList.remove('hidden');
     }
-    showWinScreen() {
+    showWinScreen(stats = null, currentTime = 0) {
         const winScreen = document.getElementById('win-screen');
         const controls = document.getElementById('game-controls');
         const title = winScreen?.querySelector('h1');
         const btn = document.getElementById('next-level-btn');
+        const statsContainer = document.getElementById('level-stats');
         if (title)
             title.innerText = 'Level Complete!';
+        if (statsContainer && stats) {
+            const formatTime = (ms) => {
+                const s = Math.floor(ms / 1000);
+                const m = Math.floor(s / 60);
+                const sec = s % 60;
+                return `${m}:${sec.toString().padStart(2, '0')}`;
+            };
+            let html = `
+            <div class="stat-row highlight">
+                <span>Time:</span>
+                <span>${formatTime(currentTime)}</span>
+            </div>
+        `;
+            if (stats) {
+                html += `
+                <div class="stat-grid">
+                    <div class="stat-item">
+                        <span class="label">Fastest</span>
+                        <span class="value">${formatTime(stats.fastest)}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="label">Average</span>
+                        <span class="value">${formatTime(stats.mean)}</span>
+                    </div>
+                </div>
+            `;
+            }
+            statsContainer.innerHTML = html;
+            statsContainer.classList.remove('hidden');
+        }
+        else if (statsContainer) {
+            statsContainer.innerHTML = '';
+            statsContainer.classList.add('hidden');
+        }
         if (btn) {
             btn.innerText = 'Next Level';
             btn.onclick = async () => {
@@ -387,10 +497,15 @@ class Game {
     checkWin() {
         if (this.grid.isSolved()) {
             console.log('Puzzle Solved!');
+            const finalTime = this.getTime();
+            this.sessionStartTime = null; // Stop timer
+            this.accumulatedTime = finalTime;
+            this.progressManager.saveCompletionTime(this.currentSize, this.currentDifficulty, finalTime);
+            const stats = this.progressManager.getStats(this.currentSize, this.currentDifficulty);
             // Slight delay to allow the last line to render
             setTimeout(() => {
                 this.progressManager.saveProgress(this.currentSize, this.currentDifficulty, this.currentLevelIndex);
-                this.showWinScreen();
+                this.showWinScreen(stats, finalTime);
             }, 50);
         }
     }
@@ -407,20 +522,28 @@ class Game {
             this.grid.loadBinaryMap(buffer);
             if (restoring) {
                 const state = this.progressManager.loadActiveState(this.currentSize);
-                if (state && state.history) {
-                    this.grid.loadHistory(state.history, state.historyIndex);
-                }
-                if (state && state.camera) {
-                    this.camera.x = state.camera.x;
-                    this.camera.y = state.camera.y;
-                    this.camera.zoom = state.camera.zoom;
+                if (state) {
+                    if (state.history) {
+                        this.grid.loadHistory(state.history, state.historyIndex);
+                    }
+                    if (state.camera) {
+                        this.camera.x = state.camera.x;
+                        this.camera.y = state.camera.y;
+                        this.camera.zoom = state.camera.zoom;
+                    }
+                    // Restore time
+                    if (typeof state.elapsedTime === 'number') {
+                        this.accumulatedTime = state.elapsedTime;
+                    }
                 }
             }
             else {
                 // New game, save initial state
+                this.accumulatedTime = 0;
                 this.saveGameHistory();
                 this.saveViewState();
             }
+            this.sessionStartTime = Date.now(); // Start timer
             this.renderer.render(this.canvas);
             this.updateButtonStates();
             // Update constraints
