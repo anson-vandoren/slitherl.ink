@@ -492,26 +492,50 @@ class Game {
         };
       }
 
+      const updateStartButtonText = () => {
+        const size = sizeSelect.value as MapSize;
+        const difficulty = diffSelect.value as Difficulty;
+        const state = this.progressManager.loadActiveState(size);
+
+        if (state && state.difficulty === difficulty && state.history && state.history.length > 0) {
+          startBtn.innerText = 'Continue Game';
+        } else {
+          startBtn.innerText = 'Start Game';
+        }
+      };
+
+      const lastSize = localStorage.getItem('slitherlink_last_size') as MapSize;
+      const lastDiff = localStorage.getItem('slitherlink_last_difficulty') as Difficulty;
+      if (lastSize) sizeSelect.value = lastSize;
+      if (lastDiff) diffSelect.value = lastDiff;
+
+      sizeSelect.onchange = updateStartButtonText;
+      diffSelect.onchange = updateStartButtonText;
+      // Initialize text
+      updateStartButtonText();
+
       startBtn.onclick = () => {
         this.currentSize = sizeSelect.value as MapSize;
         this.currentDifficulty = diffSelect.value as Difficulty;
 
         localStorage.setItem('slitherlink_last_size', this.currentSize);
+        localStorage.setItem('slitherlink_last_difficulty', this.currentDifficulty);
 
         // Check if there is an active game for this size to resume
         const state = this.progressManager.loadActiveState(this.currentSize);
         let restoring = false;
 
-        if (state) {
-          // We have a saved game. If it matches difficulty, resume it.
-          // (If user changed difficulty in dropdown, maybe reset?
-          //  But simple behavior: if active game exists for size, resume it regardless of dropdown difficulty,
-          //  or prompt? Let's just resume and update difficulty to match state.)
-          this.currentDifficulty = state.difficulty;
+        if (
+          state &&
+          state.difficulty === this.currentDifficulty &&
+          state.history &&
+          state.history.length > 0
+        ) {
+          // We have a saved game matching size AND difficulty AND history. Resume it.
           this.currentLevelIndex = state.levelIndex;
           restoring = true;
         } else {
-          // New game
+          // New game (either no saved game, or diff mismatch meaning we overwrite)
           this.currentLevelIndex = this.progressManager.getProgress(
             this.currentSize,
             this.currentDifficulty
@@ -556,6 +580,11 @@ class Game {
       confirmBtn.onclick = () => {
         this.grid.resetToStart();
         this.renderer.render(this.canvas);
+
+        // Reset time
+        this.accumulatedTime = 0;
+        this.sessionStartTime = Date.now();
+
         this.saveGameHistory();
         this.updateButtonStates();
         modal.classList.add('hidden');
