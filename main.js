@@ -24,8 +24,7 @@ class ProgressManager {
         this.saveGameHistoryWithTime(size, difficulty, levelIndex, history, historyIndex, 0, // Default to 0 if not using the time-aware method directly, thought Game class should handle this
         edgeColors);
     }
-    saveGameHistoryWithTime(size, difficulty, levelIndex, history, historyIndex, elapsedTime, edgeColors // Serialized map
-    ) {
+    saveGameHistoryWithTime(size, difficulty, levelIndex, history, historyIndex, elapsedTime, edgeColors) {
         const state = {
             size,
             difficulty,
@@ -528,7 +527,7 @@ class Game {
     }
     async loadNextLevel(restoring = false) {
         // Construct path to the map file
-        const mapPath = `maps/${this.currentSize}/${this.currentLevelIndex}.bin`;
+        const mapPath = `maps/${this.currentSize}/${this.currentDifficulty}/${this.currentLevelIndex}.bin`;
         const success = await this.loadMap(mapPath, restoring);
         if (!success) {
             if (restoring) {

@@ -33,7 +33,7 @@ class ProgressManager {
     levelIndex: number,
     history: any[],
     historyIndex: number,
-    edgeColors?: [string, number][]
+    edgeColors?: [string, number][],
   ) {
     this.saveGameHistoryWithTime(
       size,
@@ -42,7 +42,7 @@ class ProgressManager {
       history,
       historyIndex,
       0, // Default to 0 if not using the time-aware method directly, thought Game class should handle this
-      edgeColors
+      edgeColors,
     );
   }
 
@@ -53,7 +53,7 @@ class ProgressManager {
     history: any[],
     historyIndex: number,
     elapsedTime: number,
-    edgeColors?: [string, number][] // Serialized map
+    edgeColors?: [string, number][], // Serialized map
   ) {
     const state = {
       size,
@@ -329,7 +329,7 @@ class Game {
       this.grid.history,
       this.grid.historyIndex,
       this.getTime(),
-      Array.from(this.grid.edgeColors)
+      Array.from(this.grid.edgeColors),
     );
     // Update UI buttons state if needed
   }
@@ -538,12 +538,12 @@ class Game {
           // New game (either no saved game, or diff mismatch meaning we overwrite)
           this.currentLevelIndex = this.progressManager.getProgress(
             this.currentSize,
-            this.currentDifficulty
+            this.currentDifficulty,
           );
         }
 
         console.log(
-          `Starting game: ${this.currentSize} ${this.currentDifficulty} Level ${this.currentLevelIndex} (Restoring: ${restoring})`
+          `Starting game: ${this.currentSize} ${this.currentDifficulty} Level ${this.currentLevelIndex} (Restoring: ${restoring})`,
         );
 
         this.hideSplash();
@@ -619,7 +619,7 @@ class Game {
 
   async loadNextLevel(restoring: boolean = false): Promise<boolean> {
     // Construct path to the map file
-    const mapPath = `maps/${this.currentSize}/${this.currentLevelIndex}.bin`;
+    const mapPath = `maps/${this.currentSize}/${this.currentDifficulty}/${this.currentLevelIndex}.bin`;
 
     const success = await this.loadMap(mapPath, restoring);
     if (!success) {
@@ -649,7 +649,7 @@ class Game {
         this.progressManager.saveProgress(
           this.currentSize,
           this.currentDifficulty,
-          this.currentLevelIndex
+          this.currentLevelIndex,
         );
         this.showWinScreen(stats, finalTime);
       }, 50);
@@ -716,7 +716,7 @@ class Game {
     this.input.updateConstraints(
       this.renderer.getGridBounds(),
       this.canvas.width,
-      this.canvas.height
+      this.canvas.height,
     );
     this.renderer.render(this.canvas);
   }
