@@ -214,7 +214,7 @@ export class Grid {
     r: number,
     edgeIndex: EdgeDirection,
     newState: EdgeState,
-    recordMove: boolean = true
+    recordMove: boolean = true,
   ) {
     // Only allow setting ACTIVE, OFF, or UNKNOWN (clearing).
     // CALCULATED_OFF is read-only logic.
@@ -383,6 +383,39 @@ export class Grid {
 
   recalculateDerivedStates() {
     this.derivedStates.clear();
+
+    // 0. Apply Hint Logic (0 hints and Satisfied hints)
+    for (const hex of this.hexagons.values()) {
+      if (hex.showNumber) {
+        if (hex.targetCount === 0) {
+          // Rule 1: Zero Hint -> All edges OFF
+          for (let dir = 0; dir < 6; dir++) {
+            const key = this.getCanonicalEdgeKey(hex.q, hex.r, dir as EdgeDirection);
+            this.derivedStates.set(key, EdgeState.CALCULATED_OFF);
+          }
+        } else {
+          // Rule 2: Satisfied Hint -> Remaining edges OFF
+          let activeCount = 0;
+          for (let dir = 0; dir < 6; dir++) {
+            const key = this.getCanonicalEdgeKey(hex.q, hex.r, dir as EdgeDirection);
+            // DIRECT ACCESS ONLY to avoid recursion
+            const state = this.edgeStates.get(key);
+            if (state === EdgeState.ACTIVE) activeCount++;
+          }
+
+          if (activeCount === hex.targetCount) {
+            for (let dir = 0; dir < 6; dir++) {
+              const key = this.getCanonicalEdgeKey(hex.q, hex.r, dir as EdgeDirection);
+              const state = this.edgeStates.get(key);
+              // If not active, mark as derived off
+              if (state !== EdgeState.ACTIVE) {
+                this.derivedStates.set(key, EdgeState.CALCULATED_OFF);
+              }
+            }
+          }
+        }
+      }
+    }
 
     // Algorithm:
     // 1. Identify all "active" edges (from user input).
@@ -781,7 +814,7 @@ export class Grid {
           for (const c of neighborColors) {
             // Find a neighbor with this color
             const representativeKey = neighbors.find(
-              (k) => this.edgeStates.get(k) === EdgeState.ACTIVE && this.edgeColors.get(k) === c
+              (k) => this.edgeStates.get(k) === EdgeState.ACTIVE && this.edgeColors.get(k) === c,
             );
 
             if (representativeKey) {
@@ -790,7 +823,7 @@ export class Grid {
               const comp = this.getConnectedComponent(
                 parts[0]!,
                 parts[1]!,
-                parts[2] as EdgeDirection
+                parts[2] as EdgeDirection,
               );
               if (comp.length > maxSize) {
                 maxSize = comp.length;
@@ -819,7 +852,7 @@ export class Grid {
       // Check its neighbors.
       const neighbors = this.getEdgeNeighbors(q, r, dir);
       const activeNeighbors = neighbors.filter(
-        (k) => this.edgeStates.get(k) === EdgeState.ACTIVE && this.edgeColors.get(k) === wasColor
+        (k) => this.edgeStates.get(k) === EdgeState.ACTIVE && this.edgeColors.get(k) === wasColor,
       );
 
       // Group neighbors by connectivity (DFS/BFS restricted to `wasColor` edges)
@@ -844,7 +877,7 @@ export class Grid {
           const subNeighbors = this.getEdgeNeighbors(
             parts[0]!,
             parts[1]!,
-            parts[2] as EdgeDirection
+            parts[2] as EdgeDirection,
           );
 
           for (const sKey of subNeighbors) {

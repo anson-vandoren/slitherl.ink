@@ -323,6 +323,39 @@ export class Grid {
     // --- Recalculation Logic ---
     recalculateDerivedStates() {
         this.derivedStates.clear();
+        // 0. Apply Hint Logic (0 hints and Satisfied hints)
+        for (const hex of this.hexagons.values()) {
+            if (hex.showNumber) {
+                if (hex.targetCount === 0) {
+                    // Rule 1: Zero Hint -> All edges OFF
+                    for (let dir = 0; dir < 6; dir++) {
+                        const key = this.getCanonicalEdgeKey(hex.q, hex.r, dir);
+                        this.derivedStates.set(key, EdgeState.CALCULATED_OFF);
+                    }
+                }
+                else {
+                    // Rule 2: Satisfied Hint -> Remaining edges OFF
+                    let activeCount = 0;
+                    for (let dir = 0; dir < 6; dir++) {
+                        const key = this.getCanonicalEdgeKey(hex.q, hex.r, dir);
+                        // DIRECT ACCESS ONLY to avoid recursion
+                        const state = this.edgeStates.get(key);
+                        if (state === EdgeState.ACTIVE)
+                            activeCount++;
+                    }
+                    if (activeCount === hex.targetCount) {
+                        for (let dir = 0; dir < 6; dir++) {
+                            const key = this.getCanonicalEdgeKey(hex.q, hex.r, dir);
+                            const state = this.edgeStates.get(key);
+                            // If not active, mark as derived off
+                            if (state !== EdgeState.ACTIVE) {
+                                this.derivedStates.set(key, EdgeState.CALCULATED_OFF);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // Algorithm:
         // 1. Identify all "active" edges (from user input).
         // 2. Propagate "forced off" constraints until stability.
