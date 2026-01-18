@@ -1,4 +1,7 @@
 import fs from 'fs';
+import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
+import os from 'os';
+import { fileURLToPath } from 'url';
 
 // Packing constants
 const OFFSET = 64; // Supports radius up to ~30
@@ -783,13 +786,19 @@ function processDifficulty(mapData, difficulty) {
   return mapData;
 }
 
-import { fileURLToPath } from 'url';
-
 // Export functions for benchmarking
 export { generateMap, processDifficulty, getKey, getNeighbor, getNeighbors, Solver };
 
-// Run if main module
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+// Parallel execution logic
+if (isMainThread) {
+  if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    main();
+  }
+} else {
+  runWorker();
+}
+
+function main() {
   const SIZES = {
     small: 2,
     medium: 4,
@@ -800,28 +809,106 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const DIFFICULTIES = ['easy', 'medium', 'hard'];
   const MAPS_PER_SIZE = 200;
 
-  for (const [sizeName, radius] of Object.entries(SIZES)) {
+  // Prepare directories
+  for (const sizeName of Object.keys(SIZES)) {
     for (const diff of DIFFICULTIES) {
-      console.log(`Generating maps for ${sizeName} (radius ${radius}) - ${diff}...`);
       const dirPath = `maps/${sizeName}/${diff}`;
-
       if (!fs.existsSync(dirPath)) {
         fs.mkdirSync(dirPath, { recursive: true });
       }
-
-      // Reuse base maps? No, generate fresh ones for variety.
-      for (let i = 0; i < MAPS_PER_SIZE; i++) {
-        // Retry loop if map generation fails or trivial
-        let mapData = generateMap(radius);
-        processDifficulty(mapData, diff);
-
-        const filename = `${dirPath}/${i}.bin`;
-        saveBinaryMap(mapData, filename);
-        if (i % 10 === 0) process.stdout.write('.');
-      }
-      console.log(' Done.');
     }
   }
+
+  // Create tasks
+  const tasks = [];
+  for (const [sizeName, radius] of Object.entries(SIZES)) {
+    for (const diff of DIFFICULTIES) {
+      const dirPath = `maps/${sizeName}/${diff}`;
+      for (let i = 0; i < MAPS_PER_SIZE; i++) {
+        tasks.push({
+          radius,
+          difficulty: diff,
+          filename: `${dirPath}/${i}.bin`,
+          sizeName, // for logging
+        });
+      }
+    }
+  }
+
+  const numCPUs = os.cpus().length;
+  const totalTasks = tasks.length;
+  console.log(`Starting generation with ${numCPUs} threads. Total tasks: ${totalTasks}`);
+
+  const startTime = Date.now();
+  let completed = 0;
+  let activeWorkers = 0;
+
+  // Progress reporting
+  const reportInterval = setInterval(() => {
+    process.stdout.write(
+      `\rProgress: ${completed}/${totalTasks} (${((completed / totalTasks) * 100).toFixed(1)}%)`,
+    );
+  }, 1000);
+
+  // Worker handler
+  for (let i = 0; i < numCPUs; i++) {
+    const worker = new Worker(fileURLToPath(import.meta.url));
+    activeWorkers++;
+
+    worker.on('message', (msg) => {
+      if (msg === 'done') {
+        completed++;
+        nextTask(worker);
+      }
+    });
+
+    worker.on('error', (err) => {
+      console.error('Worker error:', err);
+    });
+
+    worker.on('exit', (code) => {
+      activeWorkers--;
+      if (activeWorkers === 0) {
+        clearInterval(reportInterval);
+        const duration = (Date.now() - startTime) / 1000;
+        console.log(`\nAll done in ${duration.toFixed(2)}s.`);
+      }
+    });
+
+    nextTask(worker);
+  }
+
+  function nextTask(worker) {
+    if (tasks.length > 0) {
+      worker.postMessage(tasks.shift()); // FIFO for consistent order if that mattered, but popping is finer. Shift is fine.
+    } else {
+      worker.postMessage('exit');
+    }
+  }
+}
+
+function runWorker() {
+  parentPort.on('message', (task) => {
+    if (task === 'exit') {
+      process.exit(0);
+    }
+
+    try {
+      const { radius, difficulty, filename } = task;
+      // Generate
+      const mapData = generateMap(radius);
+      processDifficulty(mapData, difficulty);
+      saveBinaryMap(mapData, filename);
+
+      parentPort.postMessage('done');
+    } catch (e) {
+      console.error('Worker failed task:', task, e);
+      // Still signal done to keep going? Or crash?
+      // Better to exit or signal error?
+      // Let's just signal done so coordinator doesn't hang, but maybe log it.
+      parentPort.postMessage('done');
+    }
+  });
 }
 
 /**
