@@ -1,7 +1,27 @@
 import fs from 'fs';
 
+// Packing constants
+const OFFSET = 64; // Supports radius up to ~30
+const STRIDE = 128; // Power of 2 for fast bit shifting
+
+function pack(q, r) {
+  return q + OFFSET + ((r + OFFSET) << 7);
+}
+
+function unpack(id) {
+  const r = (id >> 7) - OFFSET;
+  const q = (id & 0x7f) - OFFSET;
+  return { q, r };
+}
+
+function packEdge(q, r, dir) {
+  // pack hex ID, then shift for dir (3 bits)
+  const hexId = q + OFFSET + ((r + OFFSET) << 7);
+  return (hexId << 3) | dir;
+}
+
 /**
- * Coordinate helpers
+ * Coordinate helpers (String based for generator)
  */
 function getKey(q, r) {
   return `${q},${r}`;
@@ -213,260 +233,516 @@ function canToggle(targetHex, allHexes, radius) {
 }
 
 /**
- * LOGICAL SOLVER
+ * LOGICAL SOLVER (Optimized)
  */
 class Solver {
-  constructor(radius, hexes) {
+  constructor(radius) {
     this.radius = radius;
-    this.hexes = new Map(); // key -> {q, r, targetCount, showNumber, active}
-    this.edgeStates = new Map(); // key -> 'ACTIVE', 'OFF', 'UNKNOWN'
+    // Map bounds are roughly -radius to +radius.
+    // Max ID with OFFSET=64 is roughly (128*128) = 16384.
+    // Edge ID is << 3 => 131072.
+    this.edgeStates = new Uint8Array(200000); // 0: UNKNOWN, 1: ACTIVE, 2: OFF
+    this.dirtyVertices = new Int32Array(5000); // Ring buffer for dirty vertices? A stack/queue is better.
+    this.dirtyHexes = new Int32Array(5000);
+    this.qHead = 0;
+    this.qTail = 0;
 
-    // Copy hex data
-    for (const h of hexes) {
-      this.hexes.set(getKey(h.q, h.r), {
-        ...h,
-        // Reset state for internal solution tracking?
-        // No, we need solution to verify correctness, but 'edgeStates' starts UNKNOWN.
-      });
-    }
+    // Hex info
+    // We need to know targetCount and showNumber for hexes.
+    // Store in TypedArrays for fast access?
+    this.hexTargetCounts = new Int8Array(16384).fill(-1);
+    this.hexShowNumbers = new Uint8Array(16384);
 
-    // Build unique edge keys set
-    this.allEdges = new Set();
+    // We need a list of active hex IDs map traversal
+    this.activeHexIds = new Int32Array(5000); // Sufficient for radius 10 (~331 hexes)
+    this.activeHexCount = 0;
+    this.hexExists = new Uint8Array(200000);
+  }
+
+  reset(hexes) {
+    // Clear states
+    this.edgeStates.fill(0);
+    this.hexTargetCounts.fill(-1);
+    this.hexShowNumbers.fill(0);
+    this.hexExists.fill(0);
+    this.activeHexCount = 0;
+
+    // Load hexes
     for (const h of hexes) {
-      for (let dir = 0; dir < 6; dir++) {
-        const k = this.getCanonicalEdgeKey(h.q, h.r, dir);
-        this.allEdges.add(k);
-        this.edgeStates.set(k, 'UNKNOWN');
-      }
+      const id = pack(h.q, h.r);
+      this.hexTargetCounts[id] = h.targetCount !== undefined ? h.targetCount : -1;
+      this.hexShowNumbers[id] = h.showNumber ? 1 : 0;
+      this.hexExists[id] = 1;
+      this.activeHexIds[this.activeHexCount++] = id;
     }
   }
 
-  getCanonicalEdgeKey(q, r, dir) {
+  // Canonical edge key for internal logic
+  getCanonicalEdgeId(q, r, dir) {
     const d = this.getDirectionVector(dir);
     const nq = q + d.dq;
     const nr = r + d.dr;
     const ndir = (dir + 3) % 6;
 
-    const k1 = `${q},${r},${dir}`;
-    const k2 = `${nq},${nr},${ndir}`;
-    return k1 < k2 ? k1 : k2;
+    const id1 = packEdge(q, r, dir);
+    const id2 = packEdge(nq, nr, ndir);
+    return id1 < id2 ? id1 : id2;
   }
 
   getDirectionVector(direction) {
-    const directions = [
-      { dq: 1, dr: 0 },
-      { dq: 0, dr: 1 },
-      { dq: -1, dr: 1 },
-      { dq: -1, dr: 0 },
-      { dq: 0, dr: -1 },
-      { dq: 1, dr: -1 },
-    ];
-    return directions[direction];
+    // Static lookup
+    switch (direction) {
+      case 0:
+        return { dq: 1, dr: 0 };
+      case 1:
+        return { dq: 0, dr: 1 };
+      case 2:
+        return { dq: -1, dr: 1 };
+      case 3:
+        return { dq: -1, dr: 0 };
+      case 4:
+        return { dq: 0, dr: -1 };
+      case 5:
+        return { dq: 1, dr: -1 };
+    }
+    return { dq: 0, dr: 0 };
   }
 
-  // Returns true if solved uniquely (all edges determined)
-  // Returns false if ambiguous or stuck
   solve() {
     let changed = true;
     while (changed) {
       changed = false;
+      for (let i = 0; i < this.activeHexCount; i++) {
+        const id = this.activeHexIds[i];
+        const { q, r } = unpack(id);
 
-      // 1. Apply Vertex Logic (Continuity)
-      // Iterate vertices.
-      // Vertices are shared. Iterate hexes, check all 6 vertices.
-      for (const h of this.hexes.values()) {
-        for (let i = 0; i < 6; i++) {
-          if (this.applyVertexLogic(h.q, h.r, i)) changed = true;
+        for (let dir = 0; dir < 6; dir++) {
+          if (this.applyVertexLogic(q, r, dir)) changed = true;
         }
-      }
 
-      // 2. Apply Hex Logic (Clues)
-      for (const h of this.hexes.values()) {
-        if (h.showNumber) {
-          if (this.applyHexLogic(h)) changed = true;
+        if (this.hexShowNumbers[id]) {
+          if (this.applyHexLogic(q, r, id)) changed = true;
         }
       }
     }
 
-    // Check if fully determined
-    for (const state of this.edgeStates.values()) {
-      if (state === 'UNKNOWN') return false;
+    for (let i = 0; i < this.activeHexCount; i++) {
+      const id = this.activeHexIds[i];
+      const { q, r } = unpack(id);
+      for (let dir = 0; dir < 6; dir++) {
+        const eid = this.getCanonicalEdgeId(q, r, dir);
+        if (this.edgeStates[eid] === 0) return false;
+      }
     }
     return true;
   }
 
-  getEdgeState(q, r, dir) {
-    const key = this.getCanonicalEdgeKey(q, r, dir);
-    return this.edgeStates.get(key) || 'OFF'; // Default OFF if out of map?
-    // Wait, map boundary edges exist.
-    // If key not in map -> it's a boundary edge?
-    // Our map logic generates edge keys for all internal edges.
-    // Boundary edges...
-    // In grid.ts, boundary edges are valid.
-    // Here we initialized allEdges for all hexes.
-
-    // If it's not in this.edgeStates, it might be an edge on the outer boundary of the grid.
-    // But we iterated all hexes and all 6 dirs, so ALL edges touching any hex are in edgeStates.
-    // So get should return UNKNOWN.
-
-    return this.edgeStates.get(key) || 'UNKNOWN';
-  }
-
-  setEdgeState(q, r, dir, state) {
-    const key = this.getCanonicalEdgeKey(q, r, dir);
-    const current = this.edgeStates.get(key);
-    if (current !== state && current !== 'UNKNOWN') {
-      // Contradiction! (Should not happen in a valid puzzle unless logic is flawed or puzzle invalid)
-      // For generation check, if we hit contradiction, it means something is wrong, but let's ignore for now.
+  setEdgeState(edgeId, state) {
+    const current = this.edgeStates[edgeId];
+    if (current !== state && current !== 0) {
+      // Contradiction
       return false;
     }
-    if (current === 'UNKNOWN') {
-      this.edgeStates.set(key, state);
+    if (current === 0) {
+      this.edgeStates[edgeId] = state;
       return true;
     }
     return false;
   }
 
   applyVertexLogic(q, r, cornerIndex) {
-    // A vertex has 3 incident edges.
-    // 1. (q, r, cornerIndex) - let's call it "Right" edge (e2 in grid.ts logic)
-    // 2. (q, r, (cornerIndex + 5)%6) - "Left" edge (e1)
-    // 3. Sticking out edge.
-
     const e1Dir = (cornerIndex + 5) % 6;
     const e2Dir = cornerIndex;
 
-    // Find neighbors to identify 3rd edge
-    // Neighbor at e1Dir
-    const n1 = getNeighbor(q, r, e1Dir);
-    // Neighbor at e2Dir
-    const n2 = getNeighbor(q, r, e2Dir);
+    // Neighbors
+    // Helper to get neighbor coords directly
+    // q, r + dir vector
+    const d1q = [1, 0, -1, -1, 0, 1][e1Dir];
+    const d1r = [0, 1, 1, 0, -1, -1][e1Dir];
+    const n1q = q + d1q;
+    const n1r = r + d1r;
 
-    // Only verify if neighbors exist in our map
-    const hasN1 = this.hexes.has(getKey(n1.q, n1.r));
-    const hasN2 = this.hexes.has(getKey(n2.q, n2.r));
+    const d2q = [1, 0, -1, -1, 0, 1][e2Dir];
+    const d2r = [0, 1, 1, 0, -1, -1][e2Dir];
+    const n2q = q + d2q;
+    const n2r = r + d2r;
 
-    // If boundary vertex (degree 2), handled separately?
-    // Grid.ts logic handles boundary by having 2 edges.
+    const k1 = this.getCanonicalEdgeId(q, r, e1Dir);
+    const k2 = this.getCanonicalEdgeId(q, r, e2Dir);
 
-    // Let's get the keys
-    const k1 = this.getCanonicalEdgeKey(q, r, e1Dir);
-    const k2 = this.getCanonicalEdgeKey(q, r, e2Dir);
-    let k3 = null;
+    let k3 = 0;
 
-    if (hasN1) {
-      // From grid.ts: ((cornerIndex + 1) % 6) of neighbor 1
+    // Check neighbors existence
+    const n1Id = pack(n1q, n1r);
+    const n2Id = pack(n2q, n2r);
+
+    if (this.hexExists[n1Id]) {
       const d = (cornerIndex + 1) % 6;
-      k3 = this.getCanonicalEdgeKey(n1.q, n1.r, d);
-    } else if (hasN2) {
-      // From grid.ts: ((cornerIndex + 4) % 6) of neighbor 2
+      k3 = this.getCanonicalEdgeId(n1q, n1r, d);
+    } else if (this.hexExists[n2Id]) {
       const d = (cornerIndex + 4) % 6;
-      k3 = this.getCanonicalEdgeKey(n2.q, n2.r, d);
+      k3 = this.getCanonicalEdgeId(n2q, n2r, d);
     }
 
-    const s1 = this.edgeStates.get(k1);
-    const s2 = this.edgeStates.get(k2);
-    const s3 = k3 ? this.edgeStates.get(k3) : 'OFF'; // Virtual edge is OFF
+    const s1 = this.edgeStates[k1];
+    const s2 = this.edgeStates[k2];
+    const s3 = k3 ? this.edgeStates[k3] : 2;
 
     let changed = false;
+    let activeCount = 0;
+    let unknownCount = 0;
 
-    // Rule: Activity count at vertex must be 0 or 2. (Even)
-    // Actually for Loop, it must be exactly 0 or 2.
+    if (s1 === 1) activeCount++;
+    else if (s1 === 0) unknownCount++;
+    if (s2 === 1) activeCount++;
+    else if (s2 === 0) unknownCount++;
+    if (s3 === 1) activeCount++;
+    else if (s3 === 0) unknownCount++; // s3=2 if k3=0
 
-    const states = [s1, s2, s3];
-    const activeCount = states.filter((s) => s === 'ACTIVE').length;
-    const unknownCount = states.filter((s) => s === 'UNKNOWN').length;
-
-    // If 2 ACTIVE, rest must be OFF
     if (activeCount === 2) {
-      if (s1 === 'UNKNOWN') {
-        this.edgeStates.set(k1, 'OFF');
+      if (s1 === 0) {
+        this.edgeStates[k1] = 2;
         changed = true;
       }
-      if (s2 === 'UNKNOWN') {
-        this.edgeStates.set(k2, 'OFF');
+      if (s2 === 0) {
+        this.edgeStates[k2] = 2;
         changed = true;
       }
-      if (s3 === 'UNKNOWN' && k3) {
-        this.edgeStates.set(k3, 'OFF');
+      if (s3 === 0 && k3) {
+        this.edgeStates[k3] = 2;
         changed = true;
       }
-    }
-    // If 1 ACTIVE and 0 UNKNOWN -> Contradiction (handled naturally)
-
-    // If 1 ACTIVE and 1 UNKNOWN -> Must be ACTIVE
-    else if (activeCount === 1 && unknownCount === 1) {
-      if (s1 === 'UNKNOWN') {
-        this.edgeStates.set(k1, 'ACTIVE');
+    } else if (activeCount === 1 && unknownCount === 1) {
+      if (s1 === 0) {
+        this.edgeStates[k1] = 1;
         changed = true;
       }
-      if (s2 === 'UNKNOWN') {
-        this.edgeStates.set(k2, 'ACTIVE');
+      if (s2 === 0) {
+        this.edgeStates[k2] = 1;
         changed = true;
       }
-      if (s3 === 'UNKNOWN' && k3) {
-        this.edgeStates.set(k3, 'ACTIVE');
+      if (s3 === 0 && k3) {
+        this.edgeStates[k3] = 1;
         changed = true;
       }
-    }
-
-    // If 0 ACTIVE and 1 UNKNOWN -> Must be OFF (cannot be 1 alone)
-    else if (activeCount === 0 && unknownCount === 1) {
-      // Wait, if 0 Active, it could be 0 active total.
-      // So 1 UNKNOWN remaining means it COULD be active? NO.
-      // If it becomes active, total active is 1. Invalid.
-      // So it MUST be OFF.
-      if (s1 === 'UNKNOWN') {
-        this.edgeStates.set(k1, 'OFF');
+    } else if (activeCount === 0 && unknownCount === 1) {
+      if (s1 === 0) {
+        this.edgeStates[k1] = 2;
         changed = true;
       }
-      if (s2 === 'UNKNOWN') {
-        this.edgeStates.set(k2, 'OFF');
+      if (s2 === 0) {
+        this.edgeStates[k2] = 2;
         changed = true;
       }
-      if (s3 === 'UNKNOWN' && k3) {
-        this.edgeStates.set(k3, 'OFF');
+      if (s3 === 0 && k3) {
+        this.edgeStates[k3] = 2;
         changed = true;
       }
     }
-
     return changed;
   }
 
-  applyHexLogic(hex) {
-    const target = hex.targetCount;
+  applyHexLogic(q, r, id) {
+    const target = this.hexTargetCounts[id];
+    if (target < 0) return false; // Should only call if showNumber is true, but safe check
+
     let active = 0;
     let unknown = 0;
-    const unknownDirs = [];
+    // Array to store unknown dirs to avoid alloc?
+    // Just iterate twice or store in local vars
+    // 6 dirs is small.
 
+    // First pass: counts
     for (let dir = 0; dir < 6; dir++) {
-      const s = this.getEdgeState(hex.q, hex.r, dir);
-      if (s === 'ACTIVE') active++;
-      if (s === 'UNKNOWN') {
-        unknown++;
-        unknownDirs.push(dir);
-      }
+      const eid = this.getCanonicalEdgeId(q, r, dir);
+      const s = this.edgeStates[eid];
+      if (s === 1) active++;
+      else if (s === 0) unknown++;
     }
 
     let changed = false;
 
-    // 1. If active == target, rest are OFF
     if (active === target && unknown > 0) {
-      for (const dir of unknownDirs) {
-        if (this.setEdgeState(hex.q, hex.r, dir, 'OFF')) changed = true;
+      // Set all unknown to OFF
+      for (let dir = 0; dir < 6; dir++) {
+        const eid = this.getCanonicalEdgeId(q, r, dir);
+        if (this.edgeStates[eid] === 0) {
+          this.edgeStates[eid] = 2;
+          changed = true;
+        }
+      }
+    } else if (active + unknown === target && unknown > 0) {
+      // Set all unknown to ACTIVE
+      for (let dir = 0; dir < 6; dir++) {
+        const eid = this.getCanonicalEdgeId(q, r, dir);
+        if (this.edgeStates[eid] === 0) {
+          this.edgeStates[eid] = 1;
+          changed = true;
+        }
       }
     }
-
-    // 2. If active + unknown == target, rest are ACTIVE
-    if (active + unknown === target && unknown > 0) {
-      for (const dir of unknownDirs) {
-        if (this.setEdgeState(hex.q, hex.r, dir, 'ACTIVE')) changed = true;
-      }
-    }
-
     return changed;
   }
 }
+
+// Monkey patch reset to include hexExists
+Solver.prototype.initHexExists = function () {
+  this.hexExists = new Uint8Array(16384);
+};
+// Add to constructor in real code, but here we can just update the class definition above.
+// Since I can't edit the class definition recursively easily, I'll rely on the replacement text being complete.
+// I will include hexExists in the replacement above.
+// Re-writing the class block in the replacement string to be correct.
+
+class OptimizedSolver {
+  constructor(radius) {
+    this.radius = radius;
+    this.edgeStates = new Uint8Array(200000);
+    this.hexTargetCounts = new Int8Array(16384);
+    this.hexShowNumbers = new Uint8Array(16384);
+    this.hexExists = new Uint8Array(16384);
+    this.activeHexIds = [];
+  }
+
+  reset(hexes) {
+    this.edgeStates.fill(0);
+    this.hexTargetCounts.fill(-1);
+    this.hexExists.fill(0);
+    this.hexShowNumbers.fill(0);
+    this.activeHexIds.length = 0;
+
+    for (const h of hexes) {
+      const id = pack(h.q, h.r);
+      this.hexTargetCounts[id] = h.targetCount !== undefined ? h.targetCount : -1;
+      this.hexShowNumbers[id] = h.showNumber ? 1 : 0;
+      this.hexExists[id] = 1;
+      this.activeHexIds.push(id);
+    }
+  }
+
+  getCanonicalEdgeId(q, r, dir) {
+    // ... same as above
+    const d = this.getDirectionVector(dir);
+    const nq = q + d.dq;
+    const nr = r + d.dr;
+    const ndir = (dir + 3) % 6;
+    const id1 = packEdge(q, r, dir);
+    const id2 = packEdge(nq, nr, ndir);
+    return id1 < id2 ? id1 : id2;
+  }
+
+  getDirectionVector(direction) {
+    // Inlined or helper
+    const dq = [1, 0, -1, -1, 0, 1][direction];
+    const dr = [0, 1, 1, 0, -1, -1][direction];
+    return { dq, dr };
+  }
+
+  solve() {
+    // Process queue
+    console.log('Solve start. Queue size:', (this.qTail - this.qHead + 20000) % 20000);
+    let loops = 0;
+    while (this.qHead !== this.qTail) {
+      loops++;
+      if (loops % 10000 === 0) {
+        console.log('Loops:', loops, 'Head:', this.qHead, 'Tail:', this.qTail);
+      }
+      if (loops > 200000) {
+        console.log('Solver stuck! qHead', this.qHead, 'qTail', this.qTail);
+        return false;
+      }
+
+      const id = this.popQueue();
+      if (id === -1) break;
+
+      const { q, r } = unpack(id);
+
+      // 1. Check Vertex Logic for all 6 corners
+      let changed = false;
+      for (let dir = 0; dir < 6; dir++) {
+        if (this.applyVertexLogic(q, r, dir)) changed = true;
+      }
+
+      // 2. Check Hex Logic (if hint exists)
+      if (this.hexShowNumbers[id]) {
+        if (this.applyHexLogic(q, r, id)) changed = true;
+      }
+
+      // If changed, we might need to re-add?
+      // No, setEdgeState adds neighbors to queue.
+      // But if *this* hex changed, do we re-add self?
+      // apply* functions return true if *edge* changed.
+      // setEdgeState adds incident hexes of edge.
+      // Incident hexes includes this one.
+      // So setEdgeState handles requeueing.
+    }
+
+    // Verification step (optional but ensures completeness)
+    // Just check if any edge is still UNKNOWN on active hexes?
+    // If the queue is empty, and we started with all hexes, and all propagation handled...
+    // Then we are stable.
+    // Check if stable state is "solved" (all edges known).
+
+    // Performance: Checking all edges takes time.
+    // We can track "unknownEdgesCount" globally?
+    // Or just iterate. Iterating 200 hexes * 6 edges is fast (~1200 checks).
+
+    for (let i = 0; i < this.activeHexCount; i++) {
+      const id = this.activeHexIds[i];
+      const { q, r } = unpack(id);
+      for (let dir = 0; dir < 6; dir++) {
+        const eid = this.getCanonicalEdgeId(q, r, dir);
+        if (this.edgeStates[eid] === 0) return false;
+      }
+    }
+    return true;
+  }
+
+  setEdgeState(edgeId, state) {
+    const current = this.edgeStates[edgeId];
+    if (current !== state && current !== 0) {
+      // Contradiction
+      return false;
+    }
+    if (current === 0) {
+      this.edgeStates[edgeId] = state;
+
+      // We need coords to find neighbors
+      // edgeId = (hexId << 3) | dir
+      const hexId = edgeId >> 3;
+      const dir = edgeId & 7;
+      const { q, r } = unpack(hexId);
+
+      this.edgeChanged(q, r, dir);
+
+      return true;
+    }
+    return false;
+  }
+
+  applyVertexLogic(q, r, cornerIndex) {
+    const e1Dir = (cornerIndex + 5) % 6;
+    const e2Dir = cornerIndex;
+
+    // Neighbors
+    // Helper to get neighbor coords directly
+    // q, r + dir vector
+    const d1q = [1, 0, -1, -1, 0, 1][e1Dir];
+    const d1r = [0, 1, 1, 0, -1, -1][e1Dir];
+    const n1q = q + d1q;
+    const n1r = r + d1r;
+
+    const d2q = [1, 0, -1, -1, 0, 1][e2Dir];
+    const d2r = [0, 1, 1, 0, -1, -1][e2Dir];
+    const n2q = q + d2q;
+    const n2r = r + d2r;
+
+    const k1 = this.getCanonicalEdgeId(q, r, e1Dir);
+    const k2 = this.getCanonicalEdgeId(q, r, e2Dir);
+
+    let k3 = 0;
+
+    // Check neighbors existence
+    const n1Id = pack(n1q, n1r);
+    const n2Id = pack(n2q, n2r);
+
+    // Bounds check for packing? If q,r out of bounds.
+    // pack handles it but array access might be undef.
+    // hexExists is Uint8Array[16384].
+    // if id out of range, undefined.
+    // JS typed array access out of bounds returns undefined.
+
+    if (this.hexExists[n1Id]) {
+      const d = (cornerIndex + 1) % 6;
+      k3 = this.getCanonicalEdgeId(n1q, n1r, d);
+    } else if (this.hexExists[n2Id]) {
+      const d = (cornerIndex + 4) % 6;
+      k3 = this.getCanonicalEdgeId(n2q, n2r, d);
+    }
+
+    const s1 = this.edgeStates[k1];
+    const s2 = this.edgeStates[k2];
+    const s3 = k3 ? this.edgeStates[k3] : 2;
+
+    let changed = false;
+    let activeCount = 0;
+    let unknownCount = 0;
+
+    if (s1 === 1) activeCount++;
+    else if (s1 === 0) unknownCount++;
+    if (s2 === 1) activeCount++;
+    else if (s2 === 0) unknownCount++;
+    if (s3 === 1) activeCount++;
+    else if (s3 === 0) unknownCount++; // s3=2 if k3=0
+
+    if (activeCount === 2) {
+      if (s1 === 0) {
+        if (this.setEdgeState(k1, 2)) changed = true;
+      }
+      if (s2 === 0) {
+        if (this.setEdgeState(k2, 2)) changed = true;
+      }
+      if (s3 === 0 && k3) {
+        if (this.setEdgeState(k3, 2)) changed = true;
+      }
+    } else if (activeCount === 1 && unknownCount === 1) {
+      if (s1 === 0) {
+        if (this.setEdgeState(k1, 1)) changed = true;
+      }
+      if (s2 === 0) {
+        if (this.setEdgeState(k2, 1)) changed = true;
+      }
+      if (s3 === 0 && k3) {
+        if (this.setEdgeState(k3, 1)) changed = true;
+      }
+    } else if (activeCount === 0 && unknownCount === 1) {
+      if (s1 === 0) {
+        if (this.setEdgeState(k1, 2)) changed = true;
+      }
+      if (s2 === 0) {
+        if (this.setEdgeState(k2, 2)) changed = true;
+      }
+      if (s3 === 0 && k3) {
+        if (this.setEdgeState(k3, 2)) changed = true;
+      }
+    }
+    return changed;
+  }
+
+  applyHexLogic(q, r, id) {
+    const target = this.hexTargetCounts[id];
+    // target is Int8.
+
+    let active = 0;
+    let unknown = 0;
+    // Optimization: Unroll loop?
+    for (let dir = 0; dir < 6; dir++) {
+      const s = this.edgeStates[this.getCanonicalEdgeId(q, r, dir)];
+      if (s === 1) active++;
+      else if (s === 0) unknown++;
+    }
+
+    let changed = false;
+    if (active === target && unknown > 0) {
+      for (let dir = 0; dir < 6; dir++) {
+        const k = this.getCanonicalEdgeId(q, r, dir);
+        if (this.edgeStates[k] === 0) {
+          if (this.setEdgeState(k, 2)) changed = true;
+        }
+      }
+    } else if (active + unknown === target && unknown > 0) {
+      for (let dir = 0; dir < 6; dir++) {
+        const k = this.getCanonicalEdgeId(q, r, dir);
+        if (this.edgeStates[k] === 0) {
+          if (this.setEdgeState(k, 1)) changed = true;
+        }
+      }
+    }
+    return changed;
+  }
+}
+// Alias the class to Solver
+// End of Solver class
 
 /**
  * Difficulty Processor
@@ -485,21 +761,20 @@ function processDifficulty(mapData, difficulty) {
   const minDensity = difficulty === 'hard' ? 0 : difficulty === 'medium' ? 0.5 : 0.7;
   const minCount = Math.floor(hexList.length * minDensity);
 
+  // Reuse one solver
+  const solver = new Solver(radius);
+
   for (const hex of hexList) {
-    // If we reached min count, stop for medium/easy
-    // Hard goes as far as possible
     if (visibleCount <= minCount && difficulty !== 'hard') break;
 
-    // Try hiding this hint
     hex.showNumber = false;
     visibleCount--;
 
-    // Solve
-    const solver = new Solver(radius, hexes);
+    // Reuse solver
+    solver.reset(hexes);
     const solved = solver.solve();
 
     if (!solved) {
-      // Ambiguous or failed, put it back
       hex.showNumber = true;
       visibleCount++;
     }
@@ -508,37 +783,44 @@ function processDifficulty(mapData, difficulty) {
   return mapData;
 }
 
-// Run
-const SIZES = {
-  small: 2,
-  medium: 4,
-  large: 7,
-  huge: 10,
-};
+import { fileURLToPath } from 'url';
 
-const DIFFICULTIES = ['easy', 'medium', 'hard'];
-const MAPS_PER_SIZE = 50; // Reduce count slightly as solving is expensive
+// Export functions for benchmarking
+export { generateMap, processDifficulty, getKey, getNeighbor, getNeighbors, Solver };
 
-for (const [sizeName, radius] of Object.entries(SIZES)) {
-  for (const diff of DIFFICULTIES) {
-    console.log(`Generating maps for ${sizeName} (radius ${radius}) - ${diff}...`);
-    const dirPath = `maps/${sizeName}/${diff}`;
+// Run if main module
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const SIZES = {
+    small: 2,
+    medium: 4,
+    large: 7,
+    huge: 10,
+  };
 
-    if (!fs.existsSync(dirPath)) {
-      fs.mkdirSync(dirPath, { recursive: true });
+  const DIFFICULTIES = ['easy', 'medium', 'hard'];
+  const MAPS_PER_SIZE = 200;
+
+  for (const [sizeName, radius] of Object.entries(SIZES)) {
+    for (const diff of DIFFICULTIES) {
+      console.log(`Generating maps for ${sizeName} (radius ${radius}) - ${diff}...`);
+      const dirPath = `maps/${sizeName}/${diff}`;
+
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+      }
+
+      // Reuse base maps? No, generate fresh ones for variety.
+      for (let i = 0; i < MAPS_PER_SIZE; i++) {
+        // Retry loop if map generation fails or trivial
+        let mapData = generateMap(radius);
+        processDifficulty(mapData, diff);
+
+        const filename = `${dirPath}/${i}.bin`;
+        saveBinaryMap(mapData, filename);
+        if (i % 10 === 0) process.stdout.write('.');
+      }
+      console.log(' Done.');
     }
-
-    // Reuse base maps? No, generate fresh ones for variety.
-    for (let i = 0; i < MAPS_PER_SIZE; i++) {
-      // Retry loop if map generation fails or trivial
-      let mapData = generateMap(radius);
-      processDifficulty(mapData, diff);
-
-      const filename = `${dirPath}/${i}.bin`;
-      saveBinaryMap(mapData, filename);
-      if (i % 10 === 0) process.stdout.write('.');
-    }
-    console.log(' Done.');
   }
 }
 
